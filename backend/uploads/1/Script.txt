@@ -1,0 +1,220 @@
+import pandas as pd
+import smtplib
+import math
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from time import sleep
+
+# ===== CONFIG - EDIT THESE =====
+CSV_FILE = "members.csv"   
+SENDER_EMAIL = "intelligentsia@kluniversity.in"
+EMAIL_PASS = "#"   
+
+SMTP_SERVER = "smtp.office365.com"
+SMTP_PORT = 587
+
+CC_EMAILS = ["intelligentsia.techclub@gmail.com", "2200080234@kluniversity.in","pswetha@kluniversity.in","2200080015@kluniversity.in","vjoenithin@kluniversity.in"]
+
+LINK1 = "https://t.me/+7y2ebprhcE85NTA1"      # used when Avg Rating > 4
+LINK2 = "https://t.me/+_zjf_qINoYQ4M2M9"    # used when Avg Rating <= 4
+
+LINK_TELEGRAM = "https://t.me/intelligentsiacommunity"
+LINK_WEBSITE = "https://intelligentsiaclub.netlify.app"
+LINK_INSTAGRAM = "https://www.instagram.com/intelligentsia_klef"
+LINK_LINKEDIN = "https://www.linkedin.com/company/intelligentsia-club"
+
+SUBJECT_JOINED = "Welcome to Intelligentsia - Next Steps"
+SUBJECT_ENCOURAGE = "Thanks for Interviewing - Keep Building"
+
+PAUSE_SECONDS = 0.6
+
+
+HTML_TEMPLATE = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background:#f4f6f8; margin:0; padding:24px; }}
+    .card {{ max-width:640px; margin:0 auto; background:#ffffff; border-radius:10px; box-shadow:0 6px 18px rgba(17,24,39,0.06); overflow:hidden; }}
+    .header {{ background:#0f172a; color:#ffffff; padding:16px 20px; text-align:left; }}
+    .header h2 {{ margin:0; font-size:18px; font-weight:600; }}
+    .body {{ padding:20px; color:#0b1220; line-height:1.5; }}
+    .meta {{ font-size:13px; color:#374151; margin-bottom:12px; }}
+    .prefs {{ background:#f8fafc; padding:12px; border-radius:8px; border:1px solid #eef2f7; margin-bottom:14px; }}
+    .cta {{ display:inline-block; padding:10px 14px; border-radius:8px; text-decoration:none; font-weight:600; }}
+    .cta-join {{ background:#0b69ff; color:#fff; }}
+    .cta-info {{ background:#e6eefc; color:#0b69ff; }}
+    .links small {{ display:block; color:#6b7280; margin-top:12px; }}
+    .social a {{ color:#0b69ff; text-decoration:none; display:block; margin-top:6px; font-size:14px; }}
+    .foot {{ font-size:12px; color:#6b7280; margin-top:18px; }}
+  </style>
+</head>
+<body>
+  <div class="card" role="article" aria-label="Intelligentsia notification">
+    <div class="header">
+      <h2>Intelligentsia Club</h2>
+    </div>
+
+    <div class="body">
+      <div class="meta">Hello <strong>{Name}</strong>,</div>
+
+      {MAIN_PARAGRAPH}
+
+      <div class="prefs">
+        <div style="font-weight:600; margin-bottom:6px;">Your areas of interest</div>
+        <div>{Pref1} &nbsp; • &nbsp; {Pref2}</div>
+      </div>
+
+      <div>
+        <a class="cta {CTA_CLASS}" href="{Special_Link}" target="_blank" rel="noopener">{CTA_TEXT}</a>
+      </div>
+
+      <div class="links">
+        <div style="margin-top:12px; font-weight:600;">Stay connected</div>
+        <div class="social">
+          <a href="{LINK_TELEGRAM}" target="_blank">Telegram - Intelligentsia Community</a>
+          <a href="{LINK_WEBSITE}" target="_blank">Website - Intelligentsia Club</a>
+          <a href="{LINK_INSTAGRAM}" target="_blank">Instagram - @intelligentsia_klef</a>
+          <a href="{LINK_LINKEDIN}" target="_blank">LinkedIn - Intelligentsia Club</a> 
+        </div>
+        <small>If you want to ask a question, reply to this email and we'll respond.</small>
+      </div>
+
+      <div class="foot">With ❤️ Intelligentsia Club</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+def safe_get(row, key, default=""):
+    val = row.get(key, default)
+    if pd.isna(val):
+        return default
+    return str(val).strip()
+
+def build_message_html(name, pref1, pref2, joined):
+    # Motivational copy
+    if joined:
+        main = (
+            "<p style='margin:0 0 12px 0;'>"
+            "Congratulations you’ve been selected to join the Intelligentsia Club. "
+            "We’re excited to have your energy and ideas. Over the coming weeks you’ll be invited to projects and workshops focused on the areas below."
+            "</p>"
+            "<p style='margin:0 0 12px 0;'>"
+            "What this really means is you now have a platform. Keep setting small goals, ship one project, ask for feedback, and the growth will follow."
+            "</p>"
+        )
+        cta_text = "Get Started"
+        cta_class = "cta-join"
+    else:
+        main = (
+            "<p style='margin:0 0 12px 0;'>"
+            "Thank you for taking the interview. We saw your interest and potential in the areas listed below. "
+            "Keep building the skills and projects persistence beats overnight talent."
+            "</p>"
+            "<p style='margin:0 0 12px 0;'>"
+            "A practical next step: pick one small project related to your preference, complete it, and share it with the club. We’ll help mentor you through it."
+            "</p>"
+        )
+        cta_text = "Join the Community"
+        cta_class = "cta-info"
+
+    html = HTML_TEMPLATE.format(
+        Name=name,
+        Pref1=pref1 or "—",
+        Pref2=pref2 or "—",
+        MAIN_PARAGRAPH=main,
+        CTA_TEXT=cta_text,
+        CTA_CLASS=cta_class,
+        Special_Link=(LINK1 if joined else LINK2),
+        LINK_TELEGRAM=LINK_TELEGRAM,
+        LINK_WEBSITE=LINK_WEBSITE,
+        LINK_INSTAGRAM=LINK_INSTAGRAM,
+        LINK_LINKEDIN=LINK_LINKEDIN
+    )
+    return html
+
+def send_email(to_list, cc_list, subject, html_body):
+    msg = MIMEMultipart("alternative")
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = ", ".join(to_list)
+    msg["Cc"] = ", ".join(cc_list)
+    msg["Subject"] = subject
+
+    # High priority headers
+    msg["X-Priority"] = "1"
+    msg["X-MSMail-Priority"] = "High"
+    msg["Importance"] = "High"
+
+    msg.attach(MIMEText(html_body, "html"))
+
+    recipients = to_list + cc_list
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(SENDER_EMAIL, EMAIL_PASS)
+            server.sendmail(SENDER_EMAIL, recipients, msg.as_string())
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+def parse_avg(row):
+    avg_raw = row.get("Avg Rating", "")
+    try:
+        if pd.notna(avg_raw) and str(avg_raw).strip() != "":
+            return float(avg_raw)
+    except:
+        pass
+    try:
+        t = float(row.get("Technical Rating (Out of 10)", math.nan))
+    except:
+        t = math.nan
+    try:
+        h = float(row.get("HR Rating (Out of 10)", math.nan))
+    except:
+        h = math.nan
+    if not math.isnan(t) and not math.isnan(h):
+        return (t + h) / 2.0
+    if not math.isnan(t):
+        return t
+    if not math.isnan(h):
+        return h
+    return 0.0
+
+if __name__ == "__main__":
+    df = pd.read_csv(CSV_FILE)
+
+    for _, row in df.iterrows():
+        name = safe_get(row, "Name", "Candidate")
+        primary_email = safe_get(row, "Email")
+        id_number = safe_get(row, "ID Number")
+        if id_number == "":
+            print(f"Skipping {name}: missing ID Number")
+            continue
+        secondary_email = f"{id_number}@kluniversity.in"
+
+        to_list = [primary_email, secondary_email]
+        cc_list = CC_EMAILS.copy()
+
+        pref1 = safe_get(row, "Applicant Preference 1", "")
+        pref2 = safe_get(row, "Applicant Preference 2", "")
+
+        avg = parse_avg(row)
+        joined = avg > 4.0
+
+        subject = SUBJECT_JOINED if joined else SUBJECT_ENCOURAGE
+        html = build_message_html(name, pref1, pref2, joined)
+
+        ok, err = send_email(to_list, cc_list, subject, html)
+        if ok:
+            print(f"✅ Sent to {name} -> {to_list} | Avg: {avg:.2f}")
+        else:
+            print(f"❌ Failed for {name}: {err}")
+
+        sleep(PAUSE_SECONDS)
+
+    print("Finished.")

@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+SQLAlchemy
+python-multipart
+passlib[bcrypt]
+python-jose
+pydantic==2.11.7
