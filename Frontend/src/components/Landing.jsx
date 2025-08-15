@@ -1,3 +1,4 @@
+import React from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { jwtDecode } from "jwt-decode";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +12,7 @@ export function Landing() {
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
           Welcome to Video Recorder
         </h1>
+
         <p className="text-gray-600 mb-8">
           Sign in with Google to start recording professional videos
         </p>
@@ -18,19 +20,24 @@ export function Landing() {
         <div className="flex justify-center">
           <GoogleLogin
             onSuccess={(credentialResponse) => {
-              console.log(credentialResponse);
-              const decoded = jwtDecode(credentialResponse.credential);
-              console.log(decoded);
-              // Store user info if needed
-              localStorage.setItem("userInfo", JSON.stringify(decoded));
-              navigate("/video");
+              console.log("Raw Google Response:", credentialResponse);
+
+              if (credentialResponse.credential) {
+                const decoded = jwtDecode(credentialResponse.credential);
+                console.log("Decoded JWT:", decoded);
+
+                localStorage.setItem("userInfo", JSON.stringify(decoded));
+                navigate("/video");
+              } else {
+                console.error("No credential found in Google response");
+              }
             }}
             onError={(error) => {
-              console.log("Login failed:", error);
+              console.error("Google Login Failed:", error);
             }}
-            useOneTap
             theme="outline"
             size="large"
+            // Remove useOneTap for now to match YouTube example
           />
         </div>
 
