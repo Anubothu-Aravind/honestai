@@ -10,11 +10,12 @@ export function Landing() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Welcome to Video Recorder
+          Welcome to Honest-AI Recorder
         </h1>
 
         <p className="text-gray-600 mb-8">
-          Sign in with Google to start recording professional videos
+          Sign in with Google to start recording screen, video, and voice all in
+          one place
         </p>
 
         <div className="flex justify-center">
@@ -27,7 +28,7 @@ export function Landing() {
                 console.log("Decoded JWT:", decoded);
 
                 localStorage.setItem("userInfo", JSON.stringify(decoded));
-                navigate("/video");
+                navigate("/Recorder");
               } else {
                 console.error("No credential found in Google response");
               }
