@@ -342,4 +342,4 @@ For support, please open an issue in the GitHub repository or contact the develo
 ---
 
 **Built with ❤️ using React, Node.js, and modern web technologies**
-
+# TrueScope---AI-Powered-Truth-Analyzer

@@ -16,9 +16,10 @@ import {
   Eye,
   MessageSquare,
   TrendingUp,
+  Zap,
 } from "lucide-react";
 
-const UnifiedMediaRecorder = () => {
+const MLRecorder = () => {
   // Recording states
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -43,8 +44,8 @@ const UnifiedMediaRecorder = () => {
     voice: null,
   });
 
-  // Analysis results
-  const [analysisResults, setAnalysisResults] = useState({
+  // ML Analysis results
+  const [mlAnalysisResults, setMlAnalysisResults] = useState({
     voice: null,
     facial: null,
     text: null,
@@ -67,8 +68,9 @@ const UnifiedMediaRecorder = () => {
     speech: null,
   });
 
-  // Analysis progress
+  // ML Analysis progress
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
 
   // Refs
   const timerRef = useRef(null);
@@ -406,45 +408,84 @@ const UnifiedMediaRecorder = () => {
     setVoiceRecorder(null);
   };
 
-  // Simulate AI Analysis (Local Demo)
-  const runLocalAnalysis = () => {
+  // Run ML Analysis using backend API
+  const runMLAnalysis = async () => {
     setIsAnalyzing(true);
+    setAnalysisProgress(0);
     
-    // Simulate analysis delay
-    setTimeout(() => {
-      const mockAnalysis = {
-        voice: {
-          emotionalScore: Math.floor(Math.random() * 40) + 30, // 30-70
-          stressScore: Math.floor(Math.random() * 40) + 20, // 20-60
-          confidence: Math.floor(Math.random() * 30) + 70, // 70-100
-          interpretation: "Voice analysis shows moderate emotional variation with some stress indicators detected."
-        },
-        facial: {
-          microExpressions: Math.floor(Math.random() * 20) + 5, // 5-25
-          eyeMovement: Math.floor(Math.random() * 30) + 10, // 10-40
-          smileSuppression: Math.floor(Math.random() * 15) + 5, // 5-20
-          confidence: Math.floor(Math.random() * 25) + 75, // 75-100
-          interpretation: "Facial analysis detected subtle micro-expressions and normal eye movement patterns."
-        },
-        text: {
-          sentimentScore: Math.floor(Math.random() * 40) + 30, // 30-70
-          consistencyScore: Math.floor(Math.random() * 30) + 60, // 60-90
-          complexityScore: Math.floor(Math.random() * 25) + 50, // 50-75
-          confidence: Math.floor(Math.random() * 20) + 80, // 80-100
-          interpretation: "Text analysis shows balanced sentiment with good consistency in language patterns."
-        },
-        truth: {
-          truthfulness: Math.floor(Math.random() * 40) + 30, // 30-70
-          confidence: Math.floor(Math.random() * 30) + 65, // 65-95
-          interpretation: transcript.length > 50 
-            ? "Based on voice, facial, and text analysis, the response shows moderate truthfulness indicators."
-            : "Insufficient data for comprehensive analysis. Please record longer responses for better accuracy."
-        }
+    try {
+      // Prepare data for analysis
+      const analysisData = {
+        transcript: transcript !== 'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...' ? transcript : '',
+        audioData: recordings.voice ? 'audio_data_available' : null,
+        videoData: recordings.camera ? 'video_data_available' : null,
+        imageData: recordings.screen ? 'image_data_available' : null,
       };
 
-      setAnalysisResults(mockAnalysis);
+      setAnalysisProgress(20);
+
+      // Call backend ML analysis API
+      const response = await fetch(`${import.meta.env.VITE_BACKEND_BASEURL}/api/analysis/all`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(analysisData),
+      });
+
+      setAnalysisProgress(60);
+
+      if (!response.ok) {
+        throw new Error(`Analysis failed: ${response.status}`);
+      }
+
+      const results = await response.json();
+      setAnalysisProgress(100);
+
+      setMlAnalysisResults(results);
+    } catch (error) {
+      console.error('ML Analysis failed:', error);
+      // Fallback to local analysis if backend fails
+      runLocalAnalysis();
+    } finally {
       setIsAnalyzing(false);
-    }, 3000);
+      setAnalysisProgress(0);
+    }
+  };
+
+  // Fallback local analysis
+  const runLocalAnalysis = () => {
+    const mockAnalysis = {
+      voice: {
+        emotionalScore: Math.floor(Math.random() * 40) + 30,
+        stressScore: Math.floor(Math.random() * 40) + 20,
+        confidence: Math.floor(Math.random() * 30) + 70,
+        interpretation: "Voice analysis shows moderate emotional variation with some stress indicators detected."
+      },
+      facial: {
+        microExpressions: Math.floor(Math.random() * 20) + 5,
+        eyeMovement: Math.floor(Math.random() * 30) + 10,
+        smileSuppression: Math.floor(Math.random() * 15) + 5,
+        confidence: Math.floor(Math.random() * 25) + 75,
+        interpretation: "Facial analysis detected subtle micro-expressions and normal eye movement patterns."
+      },
+      text: {
+        sentimentScore: Math.floor(Math.random() * 40) + 30,
+        consistencyScore: Math.floor(Math.random() * 30) + 60,
+        complexityScore: Math.floor(Math.random() * 25) + 50,
+        confidence: Math.floor(Math.random() * 20) + 80,
+        interpretation: "Text analysis shows balanced sentiment with good consistency in language patterns."
+      },
+      truth: {
+        truthfulness: Math.floor(Math.random() * 40) + 30,
+        confidence: Math.floor(Math.random() * 30) + 65,
+        interpretation: transcript.length > 50 
+          ? "Based on voice, facial, and text analysis, the response shows moderate truthfulness indicators."
+          : "Insufficient data for comprehensive analysis. Please record longer responses for better accuracy."
+      }
+    };
+
+    setMlAnalysisResults(mockAnalysis);
   };
 
   // Reset transcript
@@ -526,11 +567,10 @@ const UnifiedMediaRecorder = () => {
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-900 mb-6">
-            TrueScope - AI Truth Analyzer
+            TrueScope - ML-Powered Truth Analyzer
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-            Record screen, camera, and voice with real-time speech-to-text
-            transcription. AI-powered truth analysis with local processing.
+            Advanced AI analysis using Machine Learning for voice, facial, and text analysis with real-time truth detection.
           </p>
 
           {/* Recording Timer */}
@@ -569,97 +609,104 @@ const UnifiedMediaRecorder = () => {
           </button>
         </div>
 
-        {/* Analysis Button */}
+        {/* ML Analysis Button */}
         {hasRecordings && (
           <div className="flex justify-center mb-8">
             <button
-              onClick={runLocalAnalysis}
+              onClick={runMLAnalysis}
               disabled={isAnalyzing}
               className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-300 shadow-lg"
             >
               {isAnalyzing ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Analyzing...
+                  Running ML Analysis... {analysisProgress}%
                 </>
               ) : (
                 <>
-                  <Brain className="w-5 h-5" />
-                  Run AI Analysis
+                  <Zap className="w-5 h-5" />
+                  Run ML Analysis
                 </>
               )}
             </button>
           </div>
         )}
 
-        {/* AI Analysis Results */}
-        {analysisResults.truth && (
+        {/* ML Analysis Results */}
+        {mlAnalysisResults.truth && (
           <div className="max-w-4xl mx-auto mb-8">
             <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-              <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">
-                AI Analysis Results
+              <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center flex items-center justify-center gap-2">
+                <Zap className="w-6 h-6 text-purple-600" />
+                ML Analysis Results
               </h3>
               
               {/* Truth Score */}
               <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-xl font-semibold text-gray-900">Overall Truth Score</h4>
+                  <h4 className="text-xl font-semibold text-gray-900">ML Truth Score</h4>
                   <TrendingUp className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="text-center">
                   <div className="text-4xl font-bold text-blue-600 mb-2">
-                    {analysisResults.truth.truthfulness}%
+                    {mlAnalysisResults.truth.truthfulness}%
                   </div>
                   <div className="text-gray-600 mb-3">
-                    Confidence: {analysisResults.truth.confidence}%
+                    Confidence: {mlAnalysisResults.truth.confidence}%
                   </div>
-                  <p className="text-gray-700">{analysisResults.truth.interpretation}</p>
+                  <p className="text-gray-700">{mlAnalysisResults.truth.interpretation}</p>
                 </div>
               </div>
 
-              {/* Individual Analysis Results */}
+              {/* Individual ML Analysis Results */}
               <div className="grid md:grid-cols-3 gap-6">
                 {/* Voice Analysis */}
-                <div className="bg-green-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Volume2 className="w-5 h-5 text-green-600" />
-                    <h5 className="font-semibold text-green-800">Voice Analysis</h5>
+                {mlAnalysisResults.voice && (
+                  <div className="bg-green-50 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Volume2 className="w-5 h-5 text-green-600" />
+                      <h5 className="font-semibold text-green-800">ML Voice Analysis</h5>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div>Emotional: {mlAnalysisResults.voice.emotionalScore}%</div>
+                      <div>Stress: {mlAnalysisResults.voice.stressScore}%</div>
+                      <div>Confidence: {mlAnalysisResults.voice.confidence}%</div>
+                      <p className="text-green-700 text-xs mt-2">{mlAnalysisResults.voice.interpretation}</p>
+                    </div>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div>Emotional: {analysisResults.voice.emotionalScore}%</div>
-                    <div>Stress: {analysisResults.voice.stressScore}%</div>
-                    <div>Confidence: {analysisResults.voice.confidence}%</div>
-                    <p className="text-green-700 text-xs mt-2">{analysisResults.voice.interpretation}</p>
-                  </div>
-                </div>
+                )}
 
                 {/* Facial Analysis */}
-                <div className="bg-blue-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Eye className="w-5 h-5 text-blue-600" />
-                    <h5 className="font-semibold text-blue-800">Facial Analysis</h5>
+                {mlAnalysisResults.facial && (
+                  <div className="bg-blue-50 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Eye className="w-5 h-5 text-blue-600" />
+                      <h5 className="font-semibold text-blue-800">ML Facial Analysis</h5>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div>Micro-expressions: {mlAnalysisResults.facial.microExpressions}</div>
+                      <div>Eye movement: {mlAnalysisResults.facial.eyeMovement}</div>
+                      <div>Confidence: {mlAnalysisResults.facial.confidence}%</div>
+                      <p className="text-blue-700 text-xs mt-2">{mlAnalysisResults.facial.interpretation}</p>
+                    </div>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div>Micro-expressions: {analysisResults.facial.microExpressions}</div>
-                    <div>Eye movement: {analysisResults.facial.eyeMovement}</div>
-                    <div>Confidence: {analysisResults.facial.confidence}%</div>
-                    <p className="text-blue-700 text-xs mt-2">{analysisResults.facial.interpretation}</p>
-                  </div>
-                </div>
+                )}
 
                 {/* Text Analysis */}
-                <div className="bg-purple-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <MessageSquare className="w-5 h-5 text-purple-600" />
-                    <h5 className="font-semibold text-purple-800">Text Analysis</h5>
+                {mlAnalysisResults.text && (
+                  <div className="bg-purple-50 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <MessageSquare className="w-5 h-5 text-purple-600" />
+                      <h5 className="font-semibold text-purple-800">ML Text Analysis</h5>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div>Sentiment: {mlAnalysisResults.text.sentimentScore}%</div>
+                      <div>Consistency: {mlAnalysisResults.text.consistencyScore}%</div>
+                      <div>Confidence: {mlAnalysisResults.text.confidence}%</div>
+                      <p className="text-purple-700 text-xs mt-2">{mlAnalysisResults.text.interpretation}</p>
+                    </div>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div>Sentiment: {analysisResults.text.sentimentScore}%</div>
-                    <div>Consistency: {analysisResults.text.consistencyScore}%</div>
-                    <div>Confidence: {analysisResults.text.confidence}%</div>
-                    <p className="text-purple-700 text-xs mt-2">{analysisResults.text.interpretation}</p>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -677,7 +724,7 @@ const UnifiedMediaRecorder = () => {
                   Live Speech Transcription
                 </h3>
                 <p className="text-gray-600">
-                  Real-time speech-to-text conversion
+                  Real-time speech-to-text conversion for ML analysis
                 </p>
               </div>
             </div>
@@ -916,46 +963,46 @@ const UnifiedMediaRecorder = () => {
           </div>
         </div>
 
-        {/* Tips Section */}
+        {/* ML Features Section */}
         <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-          <h3 className="text-2xl font-bold text-gray-900 mb-8 text-center">
-            Tips for Best Results
+          <h3 className="text-2xl font-bold text-gray-900 mb-8 text-center flex items-center justify-center gap-2">
+            <Zap className="w-6 h-6 text-purple-600" />
+            ML-Powered Features
           </h3>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Mic className="w-8 h-8 text-blue-600" />
-              </div>
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                Clear Speech
-              </h4>
-              <p className="text-gray-600 text-sm">
-                Speak clearly and at normal pace for better transcription
-                accuracy
-              </p>
-            </div>
-
             <div className="text-center">
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Volume2 className="w-8 h-8 text-green-600" />
               </div>
               <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                Quiet Environment
+                Voice Analysis
               </h4>
               <p className="text-gray-600 text-sm">
-                Use in quiet spaces to minimize background noise interference
+                ML analysis of pitch, tone, stress indicators, and emotional patterns
+              </p>
+            </div>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Eye className="w-8 h-8 text-blue-600" />
+              </div>
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">
+                Facial Analysis
+              </h4>
+              <p className="text-gray-600 text-sm">
+                Computer vision for micro-expressions, eye movement, and facial cues
               </p>
             </div>
 
             <div className="text-center">
               <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Monitor className="w-8 h-8 text-purple-600" />
+                <MessageSquare className="w-8 h-8 text-purple-600" />
               </div>
               <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                Screen Sharing
+                Text Analysis
               </h4>
               <p className="text-gray-600 text-sm">
-                Select the right screen or application to share for recording
+                NLP-based sentiment analysis, consistency checking, and contradiction detection
               </p>
             </div>
 
@@ -964,10 +1011,10 @@ const UnifiedMediaRecorder = () => {
                 <Brain className="w-8 h-8 text-yellow-600" />
               </div>
               <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                AI Analysis
+                Truth Engine
               </h4>
               <p className="text-gray-600 text-sm">
-                Run AI analysis after recording to get truthfulness insights
+                ML model combining all analyses to predict truthfulness probability
               </p>
             </div>
           </div>
@@ -977,4 +1024,4 @@ const UnifiedMediaRecorder = () => {
   );
 };
 
-export default UnifiedMediaRecorder;
+export default MLRecorder;

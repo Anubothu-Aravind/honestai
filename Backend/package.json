@@ -12,7 +12,11 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "ml-matrix": "^6.12.1",
     "mongoose": "^8.5.1",
-    "nodemon": "^3.1.10"
+    "natural": "^8.1.0",
+    "nodemon": "^3.1.10",
+    "pdfkit": "^0.15.0",
+    "sentiment": "^5.0.2"
   }
 }
