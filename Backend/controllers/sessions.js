@@ -30,9 +30,29 @@ export const createSession = async (req, res, next) => {
 
 export const listSessions = async (req, res, next) => {
   try {
+    const adminKey = req.header("x-admin-key");
+    const isAdmin =
+      adminKey &&
+      process.env.ADMIN_SECRET &&
+      adminKey === process.env.ADMIN_SECRET;
+
+    if (isAdmin) {
+      const sessions = await Session.find({})
+        .sort({ createdAt: -1 })
+        .limit(100);
+      return res.status(200).json({ success: true, sessions });
+    }
+
     const { userId } = req.query;
-    const filter = userId ? { userId } : {};
-    const sessions = await Session.find(filter).sort({ createdAt: -1 }).limit(100);
+    if (!userId) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Forbidden: userId required" });
+    }
+    const filter = { userId };
+    const sessions = await Session.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(100);
     return res.status(200).json({ success: true, sessions });
   } catch (error) {
     console.error(error);
@@ -119,31 +139,53 @@ export const exportSessionPdf = async (req, res, next) => {
     doc.moveDown();
     doc.fontSize(16).text("Notes");
     doc.fontSize(12);
-    if (session.transcript) doc.text(`Transcript: ${session.transcript.substring(0, 1000)}...`);
-    if (session.textInput) doc.text(`Text Input: ${session.textInput.substring(0, 1000)}...`);
+    if (session.transcript)
+      doc.text(`Transcript: ${session.transcript.substring(0, 1000)}...`);
+    if (session.textInput)
+      doc.text(`Text Input: ${session.textInput.substring(0, 1000)}...`);
 
     doc.end();
 
     await new Promise((resolve) => doc.on("end", resolve));
     const buffer = Buffer.concat(chunks);
 
-    // Upload PDF to Cloudinary as raw
+    // Upload PDF to Cloudinary with proper configuration
     const uploadResult = await new Promise((resolve, reject) => {
+      const uploadOptions = {
+        resource_type: "auto",
+        folder: "session_reports",
+        public_id: `report_${session._id}_${Date.now()}`,
+        format: "pdf",
+        type: "upload",
+        content_type: "application/pdf",
+      };
+
       const stream = cloudinary.uploader.upload_stream(
-        { resource_type: "raw", folder: "session_reports", format: "pdf" },
+        uploadOptions,
         (error, result) => (error ? reject(error) : resolve(result))
       );
       stream.end(buffer);
     });
 
+    // Save the URL to the session
     session.report = session.report || {};
     session.report.exportedPdfUrl = uploadResult.secure_url;
     await session.save();
 
-    return res.status(200).json({ success: true, pdfUrl: uploadResult.secure_url });
+    // Create a direct download URL with proper content disposition
+    const pdfUrl = uploadResult.secure_url.replace(
+      "/upload/",
+      "/upload/fl_attachment/"
+    );
+
+    return res.status(200).json({
+      success: true,
+      pdfUrl: pdfUrl,
+      originalUrl: uploadResult.secure_url,
+    });
   } catch (error) {
     console.error(error);
     res.status(500);
     next(error);
   }
-}; 
+};

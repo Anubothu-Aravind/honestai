@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
+  Plus,
   Play,
   Square,
   Mic,
@@ -16,6 +17,7 @@ import {
   Eye,
   MessageSquare,
   TrendingUp,
+  Upload,
 } from "lucide-react";
 
 const UnifiedMediaRecorder = () => {
@@ -34,10 +36,25 @@ const UnifiedMediaRecorder = () => {
     'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
   );
   const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
   const finalTranscriptRef = useRef("");
 
   // Recorded data
   const [recordings, setRecordings] = useState({
+    screen: null,
+    camera: null,
+    voice: null,
+  });
+
+  // Upload states
+  const [isUploading, setIsUploading] = useState({
+    screen: false,
+    camera: false,
+    voice: false,
+    all: false,
+  });
+
+  const [uploadUrls, setUploadUrls] = useState({
     screen: null,
     camera: null,
     voice: null,
@@ -65,10 +82,12 @@ const UnifiedMediaRecorder = () => {
     camera: null,
     voice: null,
     speech: null,
+    analysis: null,
   });
 
   // Analysis progress
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
 
   // Refs
   const timerRef = useRef(null);
@@ -78,10 +97,22 @@ const UnifiedMediaRecorder = () => {
     voice: [],
   });
 
-  // Check browser support
-  const browserSupportsRecognition = () => {
-    return "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
-  };
+  // Check browser support on mount
+  useEffect(() => {
+    const checkSpeechSupport = () => {
+      const supported =
+        "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
+      setSpeechSupported(supported);
+      if (!supported) {
+        setErrors((prev) => ({
+          ...prev,
+          speech:
+            "Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.",
+        }));
+      }
+    };
+    checkSpeechSupport();
+  }, []);
 
   // Timer effect
   useEffect(() => {
@@ -106,9 +137,9 @@ const UnifiedMediaRecorder = () => {
       .padStart(2, "0")}`;
   };
 
-  // Initialize speech recognition with better configuration
-  const initializeSpeechRecognition = () => {
-    if (!browserSupportsRecognition()) {
+  // Initialize speech recognition with better error handling
+  const initializeSpeechRecognition = async () => {
+    if (!speechSupported) {
       setErrors((prev) => ({
         ...prev,
         speech: "Speech recognition not supported in this browser",
@@ -116,91 +147,104 @@ const UnifiedMediaRecorder = () => {
       return null;
     }
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognitionInstance = new SpeechRecognition();
+    try {
+      // Request microphone permission first
+      await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    // Enhanced configuration
-    recognitionInstance.continuous = true;
-    recognitionInstance.interimResults = true;
-    recognitionInstance.lang = "en-US";
-    recognitionInstance.maxAlternatives = 1;
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognitionInstance = new SpeechRecognition();
 
-    recognitionInstance.onresult = (event) => {
-      let finalTranscript = "";
-      let interimTranscript = "";
+      recognitionInstance.continuous = true;
+      recognitionInstance.interimResults = true;
+      recognitionInstance.lang = "en-US";
+      recognitionInstance.maxAlternatives = 1;
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const currentTranscript = event.results[i][0].transcript;
+      recognitionInstance.onresult = (event) => {
+        let finalTranscript = "";
+        let interimTranscript = "";
 
-        if (event.results[i].isFinal) {
-          finalTranscript += currentTranscript + " ";
-        } else {
-          interimTranscript = currentTranscript;
-        }
-      }
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const currentTranscript = event.results[i][0].transcript;
 
-      if (finalTranscript) {
-        finalTranscriptRef.current += finalTranscript;
-      }
-
-      const displayTranscript = finalTranscriptRef.current + interimTranscript;
-      setTranscript(
-        displayTranscript.trim() ||
-          'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
-      );
-    };
-
-    recognitionInstance.onstart = () => {
-      setIsListening(true);
-      setStatus((prev) => ({ ...prev, speech: "recording" }));
-      setErrors((prev) => ({ ...prev, speech: null }));
-    };
-
-    recognitionInstance.onend = () => {
-      setIsListening(false);
-      setStatus((prev) => ({ ...prev, speech: "completed" }));
-    };
-
-    recognitionInstance.onerror = (event) => {
-      console.error("Speech recognition error:", event.error);
-      setIsListening(false);
-      setStatus((prev) => ({ ...prev, speech: "error" }));
-
-      if (event.error === "not-allowed") {
-        setErrors((prev) => ({
-          ...prev,
-          speech: "Microphone access denied for speech recognition",
-        }));
-      } else if (event.error === "no-speech") {
-        setErrors((prev) => ({ 
-          ...prev, 
-          speech: "No speech detected. Please speak clearly and ensure your microphone is working." 
-        }));
-        // Restart recognition after a short delay
-        setTimeout(() => {
-          if (isRecording) {
-            try {
-              recognitionInstance.start();
-            } catch (e) {
-              console.log("Failed to restart recognition:", e);
-            }
+          if (event.results[i].isFinal) {
+            finalTranscript += currentTranscript + " ";
+          } else {
+            interimTranscript = currentTranscript;
           }
-        }, 1000);
-      } else if (event.error === "network") {
-        setErrors((prev) => ({
-          ...prev,
-          speech: "Network error. Please check your internet connection.",
-        }));
-      } else {
-        setErrors((prev) => ({
-          ...prev,
-          speech: `Speech recognition error: ${event.error}`,
-        }));
-      }
-    };
+        }
 
-    return recognitionInstance;
+        if (finalTranscript) {
+          finalTranscriptRef.current += finalTranscript;
+        }
+
+        const displayTranscript =
+          finalTranscriptRef.current + interimTranscript;
+        setTranscript(
+          displayTranscript.trim() ||
+            'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
+        );
+      };
+
+      recognitionInstance.onstart = () => {
+        console.log("Speech recognition started");
+        setIsListening(true);
+        setStatus((prev) => ({ ...prev, speech: "recording" }));
+        setErrors((prev) => ({ ...prev, speech: null }));
+      };
+
+      recognitionInstance.onend = () => {
+        console.log("Speech recognition ended");
+        setIsListening(false);
+        setStatus((prev) => ({ ...prev, speech: "completed" }));
+      };
+      recognitionInstance.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+        setStatus((prev) => ({ ...prev, speech: "error" }));
+
+        let errorMessage = "Speech recognition error";
+        switch (event.error) {
+          case "not-allowed":
+            errorMessage =
+              "Microphone access denied. Please allow microphone access and try again.";
+            break;
+          case "no-speech":
+            errorMessage =
+              "No speech detected. Please speak louder or closer to the microphone.";
+            break;
+          case "audio-capture":
+            errorMessage =
+              "No microphone found. Please check your microphone connection.";
+            break;
+          case "network":
+            errorMessage =
+              "Network error: Cannot connect to speech recognition service. Please check: 1) Internet connection is active, 2) You're using HTTPS or localhost (not IP address), 3) Disable VPN if active, 4) Use Chrome or Edge browser.";
+            break;
+          case "service-not-allowed":
+            errorMessage =
+              "Speech recognition service not allowed. Please check browser permissions.";
+            break;
+          case "aborted":
+            errorMessage = "Speech recognition was aborted. Please try again.";
+            break;
+          default:
+            errorMessage = `Speech recognition error: ${event.error}. Try refreshing the page or using Chrome/Edge browser.`;
+        }
+
+        setErrors((prev) => ({ ...prev, speech: errorMessage }));
+      };
+
+      return recognitionInstance;
+    } catch (error) {
+      console.error("Failed to initialize speech recognition:", error);
+      setErrors((prev) => ({
+        ...prev,
+        speech:
+          "Failed to access microphone. Please allow microphone permissions.",
+      }));
+      return null;
+    }
   };
 
   // Setup screen recording
@@ -348,18 +392,28 @@ const UnifiedMediaRecorder = () => {
         setTranscript("");
       }
 
-      // Setup speech recognition
-      const speechRec = initializeSpeechRecognition();
-      if (speechRec) {
-        setRecognition(speechRec);
-        speechRec.start();
+      // Setup speech recognition if supported
+      if (speechSupported) {
+        const speechRec = await initializeSpeechRecognition();
+        if (speechRec) {
+          setRecognition(speechRec);
+          try {
+            speechRec.start();
+          } catch (error) {
+            console.error("Failed to start speech recognition:", error);
+            setErrors((prev) => ({
+              ...prev,
+              speech: "Failed to start speech recognition. Please try again.",
+            }));
+          }
+        }
       }
 
       // Setup all media recorders
       const [screenRec, cameraRec, voiceRec] = await Promise.all([
-        setupScreenRecording(),
-        setupCameraRecording(),
-        setupVoiceRecording(),
+        setupScreenRecording().catch(() => null),
+        setupCameraRecording().catch(() => null),
+        setupVoiceRecording().catch(() => null),
       ]);
 
       // Start recording on all available recorders
@@ -370,9 +424,25 @@ const UnifiedMediaRecorder = () => {
       ].filter((r) => r.recorder !== null);
 
       recorders.forEach(({ recorder, type }) => {
-        recorder.start(1000);
-        setStatus((prev) => ({ ...prev, [type]: "recording" }));
+        try {
+          recorder.start(1000);
+          setStatus((prev) => ({ ...prev, [type]: "recording" }));
+        } catch (error) {
+          console.error(`Failed to start ${type} recording:`, error);
+          setErrors((prev) => ({
+            ...prev,
+            [type]: `Failed to start ${type} recording`,
+          }));
+        }
       });
+
+      if (recorders.length === 0) {
+        setErrors((prev) => ({
+          ...prev,
+          general: "Failed to start any recordings. Please check permissions.",
+        }));
+        setIsRecording(false);
+      }
     } catch (error) {
       console.error("Failed to start recording:", error);
       setIsRecording(false);
@@ -384,8 +454,12 @@ const UnifiedMediaRecorder = () => {
     setIsRecording(false);
 
     // Stop speech recognition
-    if (recognition) {
-      recognition.stop();
+    if (recognition && isListening) {
+      try {
+        recognition.stop();
+      } catch (error) {
+        console.error("Error stopping speech recognition:", error);
+      }
       setRecognition(null);
     }
 
@@ -396,7 +470,11 @@ const UnifiedMediaRecorder = () => {
       { recorder: voiceRecorder, type: "voice" },
     ].forEach(({ recorder, type }) => {
       if (recorder && recorder.state === "recording") {
-        recorder.stop();
+        try {
+          recorder.stop();
+        } catch (error) {
+          console.error(`Error stopping ${type} recorder:`, error);
+        }
       }
     });
 
@@ -406,48 +484,345 @@ const UnifiedMediaRecorder = () => {
     setVoiceRecorder(null);
   };
 
-  // Simulate AI Analysis (Local Demo)
-  const runLocalAnalysis = () => {
+  // Test speech recognition
+  const testSpeechRecognition = async () => {
+    if (!speechSupported) {
+      alert("Speech recognition not supported in this browser");
+      return;
+    }
+
+    try {
+      const testRecognition = await initializeSpeechRecognition();
+      if (testRecognition) {
+        testRecognition.start();
+        setTimeout(() => {
+          if (testRecognition) {
+            testRecognition.stop();
+          }
+        }, 3000);
+        alert("Speech recognition test started. Speak for 3 seconds...");
+      }
+    } catch (error) {
+      alert("Failed to test speech recognition: " + error.message);
+    }
+  };
+
+  // Convert blob URL to File
+  const urlToFile = async (url, filename, mimeType) => {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new File([blob], filename, { type: mimeType });
+  };
+
+  const uploadFile = async (type) => {
+    try {
+      const data = new FormData();
+      let file, filename, preset, resourceType;
+
+      if (type === "screen" && recordings.screen) {
+        file = await urlToFile(
+          recordings.screen,
+          "screen-recording.webm",
+          "video/webm"
+        );
+        filename = "screen-recording.webm";
+        preset = "Screen_record";
+        resourceType = "video";
+      } else if (type === "camera" && recordings.camera) {
+        file = await urlToFile(
+          recordings.camera,
+          "camera-recording.webm",
+          "video/webm"
+        );
+        filename = "camera-recording.webm";
+        preset = "video_preset";
+        resourceType = "video";
+      } else if (type === "voice" && recordings.voice) {
+        file = await urlToFile(
+          recordings.voice,
+          "voice-recording.webm",
+          "audio/webm"
+        );
+        filename = "voice-recording.webm";
+        preset = "Audio_preset";
+        resourceType = "video";
+      }
+
+      if (!file) throw new Error(`No ${type} recording available`);
+
+      data.append("file", file);
+      data.append("upload_preset", preset);
+
+      const cloudName = "drxnwviii";
+      const api = `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`;
+
+      const response = await fetch(api, {
+        method: "POST",
+        body: data,
+      });
+
+      const result = await response.json();
+      if (result.secure_url) {
+        console.log(`${type} uploaded:`, result.secure_url);
+        return result.secure_url;
+      } else {
+        throw new Error("Upload failed");
+      }
+    } catch (error) {
+      console.error(`${type} upload error:`, error.message);
+      throw error;
+    }
+  };
+
+  // Handle single upload
+  const handleSingleUpload = async (type) => {
+    try {
+      setIsUploading((prev) => ({ ...prev, [type]: true }));
+      setErrors((prev) => ({ ...prev, upload: null }));
+
+      const url = await uploadFile(type);
+      setUploadUrls((prev) => ({ ...prev, [type]: url }));
+
+      console.log(`${type} upload success!`);
+    } catch (error) {
+      setErrors((prev) => ({
+        ...prev,
+        upload: `Failed to upload ${type}: ${error.message}`,
+      }));
+    } finally {
+      setIsUploading((prev) => ({ ...prev, [type]: false }));
+    }
+  };
+
+  // Handle upload all
+  const handleUploadAll = async () => {
+    try {
+      setIsUploading((prev) => ({ ...prev, all: true }));
+      setErrors((prev) => ({ ...prev, upload: null }));
+
+      // Upload all available recordings
+      const uploadPromises = [];
+      const types = [];
+
+      if (recordings.screen) {
+        uploadPromises.push(uploadFile("screen"));
+        types.push("screen");
+      }
+      if (recordings.camera) {
+        uploadPromises.push(uploadFile("camera"));
+        types.push("camera");
+      }
+      if (recordings.voice) {
+        uploadPromises.push(uploadFile("voice"));
+        types.push("voice");
+      }
+
+      if (uploadPromises.length === 0) {
+        throw new Error("No recordings available to upload");
+      }
+
+      const urls = await Promise.all(uploadPromises);
+
+      // Update upload URLs
+      const newUploadUrls = { ...uploadUrls };
+      types.forEach((type, index) => {
+        newUploadUrls[type] = urls[index];
+      });
+      setUploadUrls(newUploadUrls);
+
+      // Send to backend API
+      const backendUrl = "http://localhost:5001";
+      await fetch(`${backendUrl}/api/uploads`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          audioUrl: newUploadUrls.voice,
+          videoUrl: newUploadUrls.camera,
+          screenUrl: newUploadUrls.screen,
+        }),
+      });
+
+      console.log("All files uploaded successfully!");
+    } catch (error) {
+      setErrors((prev) => ({
+        ...prev,
+        upload: `Failed to upload files: ${error.message}`,
+      }));
+    } finally {
+      setIsUploading((prev) => ({ ...prev, all: false }));
+    }
+  };
+
+  // Convert blob URL to base64 for backend processing
+  const blobUrlToBase64 = async (blobUrl) => {
+    const response = await fetch(blobUrl);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  // Run ML Analysis using backend API with session creation
+  const runMLAnalysis = async () => {
     setIsAnalyzing(true);
-    
-    // Simulate analysis delay
-    setTimeout(() => {
-      const mockAnalysis = {
-        voice: {
-          emotionalScore: Math.floor(Math.random() * 40) + 30, // 30-70
-          stressScore: Math.floor(Math.random() * 40) + 20, // 20-60
-          confidence: Math.floor(Math.random() * 30) + 70, // 70-100
-          interpretation: "Voice analysis shows moderate emotional variation with some stress indicators detected."
-        },
-        facial: {
-          microExpressions: Math.floor(Math.random() * 20) + 5, // 5-25
-          eyeMovement: Math.floor(Math.random() * 30) + 10, // 10-40
-          smileSuppression: Math.floor(Math.random() * 15) + 5, // 5-20
-          confidence: Math.floor(Math.random() * 25) + 75, // 75-100
-          interpretation: "Facial analysis detected subtle micro-expressions and normal eye movement patterns."
-        },
-        text: {
-          sentimentScore: Math.floor(Math.random() * 40) + 30, // 30-70
-          consistencyScore: Math.floor(Math.random() * 30) + 60, // 60-90
-          complexityScore: Math.floor(Math.random() * 25) + 50, // 50-75
-          confidence: Math.floor(Math.random() * 20) + 80, // 80-100
-          interpretation: "Text analysis shows balanced sentiment with good consistency in language patterns."
-        },
-        truth: {
-          truthfulness: Math.floor(Math.random() * 40) + 30, // 30-70
-          confidence: Math.floor(Math.random() * 30) + 65, // 65-95
-          interpretation: transcript.length > 50 
-            ? "Based on voice, facial, and text analysis, the response shows moderate truthfulness indicators."
-            : "Insufficient data for comprehensive analysis. Please record longer responses for better accuracy."
-        }
+    setAnalysisProgress(0);
+    setErrors((prev) => ({ ...prev, analysis: null }));
+
+    try {
+      console.log("Starting ML Analysis...");
+
+      // Prepare data for analysis
+      const analysisData = {
+        transcript:
+          transcript !==
+          'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
+            ? transcript
+            : "",
+        audioData: null,
+        videoData: null,
+        imageData: null,
       };
 
-      setAnalysisResults(mockAnalysis);
+      // Convert recorded media to base64 if available
+      if (recordings.voice) {
+        try {
+          analysisData.audioData = await blobUrlToBase64(recordings.voice);
+        } catch (e) {
+          console.warn("Audio conversion failed:", e);
+        }
+      }
+      setAnalysisProgress(25);
+
+      if (recordings.camera) {
+        try {
+          analysisData.videoData = await blobUrlToBase64(recordings.camera);
+        } catch (e) {
+          console.warn("Camera conversion failed:", e);
+        }
+      }
+      setAnalysisProgress(50);
+
+      if (recordings.screen) {
+        try {
+          analysisData.imageData = await blobUrlToBase64(recordings.screen);
+        } catch (e) {
+          console.warn("Screen conversion failed:", e);
+        }
+      }
+      setAnalysisProgress(70);
+
+      console.log("Analysis data prepared", {
+        hasAudio: !!analysisData.audioData,
+        hasVideo: !!analysisData.videoData,
+        hasImage: !!analysisData.imageData,
+        transcriptLength: analysisData.transcript?.length || 0,
+      });
+
+      // Call backend ML analysis API
+      const backendUrl = "http://localhost:5001";
+      console.log("Calling backend:", `${backendUrl}/api/analysis/all`);
+
+      const response = await fetch(`${backendUrl}/api/analysis/all`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(analysisData),
+      });
+
+      console.log("Response status:", response.status);
+      setAnalysisProgress(90);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Backend error: ${response.status} - ${errorText}`);
+      }
+
+      const results = await response.json();
+      console.log("Analysis results:", results);
+      setAnalysisProgress(100);
+
+      setAnalysisResults(results);
+
+      // Create session with results
+      try {
+        const sessionData = {
+          userId:
+            JSON.parse(localStorage.getItem("userInfo") || "{}")?.sub ||
+            "demo-user-123",
+          type: "recorded",
+          transcript: analysisData.transcript,
+          voice: results.voice,
+          facial: results.facial,
+          text: results.text,
+          truth: results.truth,
+          report: {
+            shareId: "analysis-" + Date.now(),
+          },
+        };
+
+        const sessionResponse = await fetch(`${backendUrl}/api/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sessionData),
+        });
+
+        if (sessionResponse.ok) {
+          console.log("Session created successfully");
+        }
+      } catch (sessionError) {
+        console.warn("Failed to create session:", sessionError);
+      }
+    } catch (error) {
+      console.error("ML Analysis failed:", error);
+      setErrors((prev) => ({
+        ...prev,
+        analysis: `Analysis failed: ${error.message}. Make sure backend is running on http://localhost:5001`,
+      }));
+    } finally {
       setIsAnalyzing(false);
-    }, 3000);
+      setAnalysisProgress(0);
+    }
   };
 
   // Reset transcript
+  const resetAll = () => {
+    setRecordings({ screen: null, camera: null, voice: null });
+    setUploadUrls({ screen: null, camera: null, voice: null });
+    setAnalysisResults({ voice: null, facial: null, text: null, truth: null });
+    setIsAnalyzing(false);
+    setAnalysisProgress(0);
+    setErrors({
+      screen: null,
+      camera: null,
+      voice: null,
+      speech: null,
+      analysis: null,
+    });
+    setStatus({
+      screen: "idle",
+      camera: "idle",
+      voice: "idle",
+      speech: "idle",
+    });
+    finalTranscriptRef.current = "";
+    setTranscript(
+      'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
+    );
+    if (isListening && recognition) {
+      try {
+        recognition.stop();
+      } catch (e) {
+        console.error("Error stopping recognition:", e);
+      }
+    }
+  };
+
   const resetTranscript = () => {
     finalTranscriptRef.current = "";
     setTranscript(
@@ -455,7 +830,11 @@ const UnifiedMediaRecorder = () => {
     );
 
     if (isListening && recognition) {
-      recognition.stop();
+      try {
+        recognition.stop();
+      } catch (e) {
+        console.error("Error stopping recognition:", e);
+      }
     }
   };
 
@@ -521,454 +900,750 @@ const UnifiedMediaRecorder = () => {
     recordings.screen || recordings.camera || recordings.voice;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-gray-900 mb-6">
-            TrueScope - AI Truth Analyzer
-          </h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-            Record screen, camera, and voice with real-time speech-to-text
-            transcription. AI-powered truth analysis with local processing.
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header Section */}
+        <header className="relative mb-12">
+          {/* New Recording Button - Fixed Position */}
+          <div className="fixed top-20 right-15 z-50">
+            <button
+              onClick={resetAll}
+              className="group flex items-center gap-2.5 px-5 py-3 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-slate-300 text-slate-700 rounded-xl font-medium transition-all duration-200 shadow-sm hover:shadow-md"
+            >
+              <Plus className="w-5 h-5 text-slate-500 group-hover:text-slate-700 transition-colors" />
+              <span>New Recording</span>
+            </button>
+          </div>
 
-          {/* Recording Timer */}
-          {isRecording && (
-            <div className="inline-flex items-center gap-3 bg-red-500 text-white px-6 py-3 rounded-full text-lg font-semibold animate-pulse shadow-lg">
-              <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-              Recording: {formatTime(recordingTime)}
+          {/* Main Title Section */}
+          <div className="text-center space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-full text-xs font-medium text-indigo-700 mb-4">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+              </span>
+              ML-Powered Truth Analysis
             </div>
-          )}
-        </div>
 
-        {/* Main Control */}
-        <div className="flex justify-center mb-8">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+              TrueScope
+            </h1>
+
+            <p className="text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
+              Record and analyze screen, camera, and voice with real-time
+              transcription and advanced ML truth detection
+            </p>
+
+            {/* Speech Support Status Badge */}
+            <div className="flex items-center justify-center gap-3 mt-6">
+              {speechSupported ? (
+                <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-lg text-sm font-medium border border-emerald-200">
+                  <CheckCircle className="w-4 h-4" />
+                  Speech Recognition Ready
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-2 bg-amber-50 text-amber-700 px-4 py-2 rounded-lg text-sm font-medium border border-amber-200">
+                  <AlertCircle className="w-4 h-4" />
+                  Speech Recognition Unavailable
+                </div>
+              )}
+              <button
+                onClick={testSpeechRecognition}
+                disabled={!speechSupported}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-400 text-slate-700 text-sm font-medium rounded-lg transition-colors"
+              >
+                Test Speech
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Recording Timer - Floating Badge */}
+        {isRecording && (
+          <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-40">
+            <div className="flex items-center gap-3 bg-red-500 text-white px-6 py-3 rounded-full shadow-2xl">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+              </span>
+              <span className="text-lg font-semibold tabular-nums">
+                Recording: {formatTime(recordingTime)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Main Recording Control */}
+        <section className="flex justify-center mb-10">
           <button
             onClick={isRecording ? stopRecording : startRecording}
             className={`
-              flex items-center gap-4 px-12 py-6 rounded-2xl text-xl font-bold transition-all duration-300 transform hover:scale-105 shadow-2xl
-              ${
-                isRecording
-                  ? "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-red-200"
-                  : "bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-blue-200"
-              }
-            `}
+          group relative flex items-center gap-3 px-10 py-5 rounded-2xl font-semibold text-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]
+          ${
+            isRecording
+              ? "bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/25"
+              : "bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/25"
+          }
+        `}
           >
-            {isRecording ? (
-              <>
-                <Square className="w-8 h-8" />
-                Stop Recording
-              </>
-            ) : (
-              <>
-                <Play className="w-8 h-8" />
-                Start Recording
-              </>
-            )}
+            <span className="relative">
+              {isRecording ? (
+                <Square className="w-6 h-6" />
+              ) : (
+                <Play className="w-6 h-6" />
+              )}
+            </span>
+            <span>{isRecording ? "Stop Recording" : "Start Recording"}</span>
           </button>
-        </div>
+        </section>
 
-        {/* Analysis Button */}
+        {/* Action Buttons Row */}
         {hasRecordings && (
-          <div className="flex justify-center mb-8">
+          <section className="flex flex-wrap justify-center gap-4 mb-10">
             <button
-              onClick={runLocalAnalysis}
+              onClick={handleUploadAll}
+              disabled={isUploading.all}
+              className="flex items-center gap-2.5 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-all duration-200 shadow-md hover:shadow-lg"
+            >
+              {isUploading.all ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Uploading All...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-5 h-5" />
+                  <span>Upload All Recordings</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={runMLAnalysis}
               disabled={isAnalyzing}
-              className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-semibold transition-all duration-300 shadow-lg"
+              className="flex items-center gap-2.5 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-all duration-200 shadow-md hover:shadow-lg"
             >
               {isAnalyzing ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Analyzing...
+                  <span>Analyzing... {analysisProgress}%</span>
                 </>
               ) : (
                 <>
                   <Brain className="w-5 h-5" />
-                  Run AI Analysis
+                  <span>Run ML Analysis</span>
                 </>
               )}
             </button>
+          </section>
+        )}
+
+        {/* Analysis Error Alert */}
+        {errors.analysis && (
+          <div className="max-w-3xl mx-auto mb-8">
+            <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-red-700 text-sm">{errors.analysis}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Analysis Progress Card */}
+        {isAnalyzing && (
+          <div className="max-w-3xl mx-auto mb-10">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Brain className="w-5 h-5 text-purple-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  ML Analysis in Progress
+                </h3>
+              </div>
+              <div className="space-y-3">
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${analysisProgress}%` }}
+                  />
+                </div>
+                <p className="text-sm text-slate-600">
+                  Processing voice patterns, facial expressions, and text
+                  semantics...
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
         {/* AI Analysis Results */}
         {analysisResults.truth && (
-          <div className="max-w-4xl mx-auto mb-8">
-            <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-              <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">
-                AI Analysis Results
-              </h3>
-              
-              {/* Truth Score */}
-              <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-6 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-xl font-semibold text-gray-900">Overall Truth Score</h4>
-                  <TrendingUp className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="text-center">
-                  <div className="text-4xl font-bold text-blue-600 mb-2">
-                    {analysisResults.truth.truthfulness}%
-                  </div>
-                  <div className="text-gray-600 mb-3">
-                    Confidence: {analysisResults.truth.confidence}%
-                  </div>
-                  <p className="text-gray-700">{analysisResults.truth.interpretation}</p>
-                </div>
+          <section className="max-w-5xl mx-auto mb-10">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="bg-gradient-to-r from-indigo-500 to-purple-500 px-8 py-6">
+                <h3 className="text-2xl font-bold text-white">
+                  ML Analysis Results
+                </h3>
               </div>
 
-              {/* Individual Analysis Results */}
-              <div className="grid md:grid-cols-3 gap-6">
-                {/* Voice Analysis */}
-                <div className="bg-green-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Volume2 className="w-5 h-5 text-green-600" />
-                    <h5 className="font-semibold text-green-800">Voice Analysis</h5>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div>Emotional: {analysisResults.voice.emotionalScore}%</div>
-                    <div>Stress: {analysisResults.voice.stressScore}%</div>
-                    <div>Confidence: {analysisResults.voice.confidence}%</div>
-                    <p className="text-green-700 text-xs mt-2">{analysisResults.voice.interpretation}</p>
+              <div className="p-8">
+                {/* Truth Score Hero */}
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-8 mb-8 border border-blue-100">
+                  <div className="text-center space-y-4">
+                    <h4 className="text-lg font-medium text-slate-700">
+                      Overall Truth Score
+                    </h4>
+                    <div className="relative inline-flex items-center justify-center">
+                      <svg className="w-32 h-32 transform -rotate-90">
+                        <circle
+                          cx="64"
+                          cy="64"
+                          r="56"
+                          stroke="currentColor"
+                          strokeWidth="12"
+                          fill="none"
+                          className="text-slate-200"
+                        />
+                        <circle
+                          cx="64"
+                          cy="64"
+                          r="56"
+                          stroke="currentColor"
+                          strokeWidth="12"
+                          fill="none"
+                          strokeDasharray={`${
+                            (analysisResults.truth.truthfulness / 100) * 352
+                          } 352`}
+                          className="text-indigo-500 transition-all duration-1000"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-3xl font-bold text-indigo-600">
+                          {analysisResults.truth.truthfulness}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium text-slate-600">
+                        Confidence: {analysisResults.truth.confidence}%
+                      </div>
+                      <p className="text-slate-700 max-w-md mx-auto">
+                        {analysisResults.truth.interpretation}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                {/* Facial Analysis */}
-                <div className="bg-blue-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Eye className="w-5 h-5 text-blue-600" />
-                    <h5 className="font-semibold text-blue-800">Facial Analysis</h5>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div>Micro-expressions: {analysisResults.facial.microExpressions}</div>
-                    <div>Eye movement: {analysisResults.facial.eyeMovement}</div>
-                    <div>Confidence: {analysisResults.facial.confidence}%</div>
-                    <p className="text-blue-700 text-xs mt-2">{analysisResults.facial.interpretation}</p>
-                  </div>
-                </div>
+                {/* Individual Analysis Cards */}
+                <div className="grid md:grid-cols-3 gap-6">
+                  {/* Voice Analysis */}
+                  {analysisResults.voice && (
+                    <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-5 border border-emerald-100">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="p-2 bg-emerald-100 rounded-lg">
+                          <Volume2 className="w-5 h-5 text-emerald-600" />
+                        </div>
+                        <h5 className="font-semibold text-emerald-900">
+                          Voice Analysis
+                        </h5>
+                      </div>
+                      <div className="space-y-3">
+                        {[
+                          {
+                            label: "Emotional",
+                            value: analysisResults.voice.emotionalScore,
+                          },
+                          {
+                            label: "Stress",
+                            value: analysisResults.voice.stressScore,
+                          },
+                          {
+                            label: "Pitch",
+                            value: analysisResults.voice.pitchScore,
+                          },
+                          {
+                            label: "Tone",
+                            value: analysisResults.voice.toneScore,
+                          },
+                          {
+                            label: "Confidence",
+                            value: analysisResults.voice.confidence,
+                          },
+                        ].map((item) => (
+                          <div
+                            key={item.label}
+                            className="flex items-center justify-between"
+                          >
+                            <span className="text-sm text-slate-600">
+                              {item.label}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-24 bg-emerald-100 rounded-full h-1.5">
+                                <div
+                                  className="bg-emerald-500 h-1.5 rounded-full"
+                                  style={{ width: `${item.value}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-medium text-slate-700 w-10 text-right">
+                                {item.value}%
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        <p className="text-emerald-700 text-xs mt-3 pt-3 border-t border-emerald-100">
+                          {analysisResults.voice.interpretation}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
-                {/* Text Analysis */}
-                <div className="bg-purple-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <MessageSquare className="w-5 h-5 text-purple-600" />
-                    <h5 className="font-semibold text-purple-800">Text Analysis</h5>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div>Sentiment: {analysisResults.text.sentimentScore}%</div>
-                    <div>Consistency: {analysisResults.text.consistencyScore}%</div>
-                    <div>Confidence: {analysisResults.text.confidence}%</div>
-                    <p className="text-purple-700 text-xs mt-2">{analysisResults.text.interpretation}</p>
-                  </div>
+                  {/* Facial Analysis */}
+                  {analysisResults.facial && (
+                    <div className="bg-gradient-to-br from-blue-50 to-sky-50 rounded-xl p-5 border border-blue-100">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <Eye className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <h5 className="font-semibold text-blue-900">
+                          Facial Analysis
+                        </h5>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">
+                              Micro-expressions
+                            </span>
+                            <span className="font-medium text-slate-700">
+                              {analysisResults.facial.microExpressions}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Eye movement</span>
+                            <span className="font-medium text-slate-700">
+                              {analysisResults.facial.eyeMovement}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">
+                              Head stability
+                            </span>
+                            <span className="font-medium text-slate-700">
+                              {analysisResults.facial.headPoseStability}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">
+                              Gaze stability
+                            </span>
+                            <span className="font-medium text-slate-700">
+                              {analysisResults.facial.gazeStability}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-600">Confidence</span>
+                            <span className="font-medium text-slate-700">
+                              {analysisResults.facial.confidence}%
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-blue-700 text-xs mt-3 pt-3 border-t border-blue-100">
+                          {analysisResults.facial.interpretation}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Text Analysis */}
+                  {analysisResults.text && (
+                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-5 border border-purple-100">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="p-2 bg-purple-100 rounded-lg">
+                          <MessageSquare className="w-5 h-5 text-purple-600" />
+                        </div>
+                        <h5 className="font-semibold text-purple-900">
+                          Text Analysis
+                        </h5>
+                      </div>
+                      <div className="space-y-3">
+                        {[
+                          {
+                            label: "Sentiment",
+                            value: analysisResults.text.sentimentScore,
+                          },
+                          {
+                            label: "Consistency",
+                            value: analysisResults.text.consistencyScore,
+                          },
+                          {
+                            label: "Deception",
+                            value: analysisResults.text.deceptionScore,
+                          },
+                          {
+                            label: "Complexity",
+                            value: analysisResults.text.complexityScore,
+                          },
+                          {
+                            label: "Confidence",
+                            value: analysisResults.text.confidence,
+                          },
+                        ].map((item) => (
+                          <div
+                            key={item.label}
+                            className="flex items-center justify-between"
+                          >
+                            <span className="text-sm text-slate-600">
+                              {item.label}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-24 bg-purple-100 rounded-full h-1.5">
+                                <div
+                                  className="bg-purple-500 h-1.5 rounded-full"
+                                  style={{ width: `${item.value}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-medium text-slate-700 w-10 text-right">
+                                {item.value}%
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        <p className="text-purple-700 text-xs mt-3 pt-3 border-t border-purple-100">
+                          {analysisResults.text.interpretation}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Speech-to-Text Section */}
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-purple-100 rounded-xl">
-                <Volume2 className="w-8 h-8 text-purple-600" />
+        {/* Live Transcription Section */}
+        <section className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-10 overflow-hidden">
+          <div className="bg-gradient-to-r from-purple-500 to-indigo-500 px-8 py-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg backdrop-blur">
+                  <Volume2 className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-white">
+                    Live Speech Transcription
+                  </h3>
+                  <p className="text-purple-100 text-sm">
+                    Real-time speech-to-text conversion
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-2xl font-semibold text-gray-900">
-                  Live Speech Transcription
-                </h3>
-                <p className="text-gray-600">
-                  Real-time speech-to-text conversion
-                </p>
-              </div>
-            </div>
-            <div
-              className={`flex items-center gap-2 ${getStatusColor(
-                status.speech
-              )}`}
-            >
-              {getStatusIcon(status.speech)}
-              <span className="font-medium capitalize">{status.speech}</span>
-            </div>
-          </div>
-
-          {errors.speech && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-              <p className="text-red-700 text-sm">{errors.speech}</p>
-              <p className="text-red-600 text-xs mt-1">
-                💡 Tip: Speak clearly, ensure microphone access is granted, and check your internet connection.
-              </p>
-            </div>
-          )}
-
-          {/* Transcript Display */}
-          <div className="bg-gray-50 rounded-2xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold text-gray-800">
-                Live Transcript
-              </h4>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <span>
-                  {transcript ===
-                  'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
-                    ? 0
-                    : transcript.length}{" "}
-                  characters
+              <div
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/20 backdrop-blur ${
+                  status.speech === "active"
+                    ? "text-emerald-100"
+                    : status.speech === "error"
+                    ? "text-red-100"
+                    : "text-white/80"
+                }`}
+              >
+                {getStatusIcon(status.speech)}
+                <span className="text-sm font-medium capitalize">
+                  {status.speech}
                 </span>
               </div>
             </div>
+          </div>
 
-            <div className="min-h-32 max-h-96 overflow-y-auto mb-4">
-              <p className="text-gray-700 text-lg leading-relaxed whitespace-pre-wrap break-words">
-                {transcript}
-              </p>
-            </div>
+          <div className="p-8">
+            {errors.speech && (
+              <div className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4 mb-6 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-red-700 text-sm">{errors.speech}</p>
+              </div>
+            )}
 
-            {isListening && (
-              <div className="flex items-center justify-center py-4">
-                <div className="flex items-center space-x-2">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
-                    <div
-                      className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.1s" }}
-                    ></div>
-                    <div
-                      className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.2s" }}
-                    ></div>
+            {/* Transcript Display */}
+            <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden mb-6">
+              <div className="px-6 py-4 bg-white border-b border-slate-200">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-slate-800">
+                    Live Transcript
+                  </h4>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-slate-500">
+                      {transcript ===
+                      'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
+                        ? "0 characters"
+                        : `${transcript.length} characters`}
+                    </span>
+                    {isListening && (
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+                        </span>
+                        <span className="text-sm text-purple-600 font-medium">
+                          Listening
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <span className="text-purple-600 text-sm font-medium ml-3">
-                    Actively listening...
-                  </span>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Transcript Controls */}
-          <div className="flex gap-3">
-            <button
-              onClick={copyTranscript}
-              disabled={
-                transcript ===
-                'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
-              }
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-lg font-medium transition-colors"
-            >
-              <Copy className="w-4 h-4" />
-              Copy Text
-            </button>
-            <button
-              onClick={downloadTranscript}
-              disabled={
-                transcript ===
-                'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
-              }
-              className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white rounded-lg font-medium transition-colors"
-            >
-              <FileText className="w-4 h-4" />
-              Download Transcript
-            </button>
-            <button
-              onClick={resetTranscript}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Reset
-            </button>
-          </div>
-        </div>
-
-        {/* Status Cards */}
-        <div className="grid lg:grid-cols-3 gap-8 mb-12">
-          {/* Screen Recording Status */}
-          <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-purple-100 rounded-xl">
-                  <Monitor className="w-8 h-8 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    Screen Recording
-                  </h3>
-                  <p className="text-gray-600">Capture your entire screen</p>
-                </div>
-              </div>
-              <div
-                className={`flex items-center gap-2 ${getStatusColor(
-                  status.screen
-                )}`}
-              >
-                {getStatusIcon(status.screen)}
-                <span className="font-medium capitalize">{status.screen}</span>
-              </div>
-            </div>
-
-            {errors.screen && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-red-700 text-sm">{errors.screen}</p>
-              </div>
-            )}
-
-            {recordings.screen && (
-              <div className="space-y-4">
-                <video
-                  src={recordings.screen}
-                  controls
-                  className="w-full h-40 bg-black rounded-lg"
-                />
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-green-700 text-sm font-medium">
-                    ✅ Screen recording completed successfully
+              <div className="p-6">
+                <div className="min-h-[120px] max-h-[400px] overflow-y-auto">
+                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap break-words">
+                    {transcript}
                   </p>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Camera Recording Status */}
-          <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-100 rounded-xl">
-                  <Video className="w-8 h-8 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    Camera Recording
-                  </h3>
-                  <p className="text-gray-600">Record from webcam</p>
-                </div>
-              </div>
-              <div
-                className={`flex items-center gap-2 ${getStatusColor(
-                  status.camera
-                )}`}
+            {/* Transcript Controls */}
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={copyTranscript}
+                disabled={
+                  transcript ===
+                  'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
+                }
+                className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-400 text-slate-700 rounded-lg font-medium transition-colors"
               >
-                {getStatusIcon(status.camera)}
-                <span className="font-medium capitalize">{status.camera}</span>
-              </div>
-            </div>
-
-            {errors.camera && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-red-700 text-sm">{errors.camera}</p>
-              </div>
-            )}
-
-            {recordings.camera && (
-              <div className="space-y-4">
-                <video
-                  src={recordings.camera}
-                  controls
-                  className="w-full h-40 bg-black rounded-lg"
-                />
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-green-700 text-sm font-medium">
-                    ✅ Camera recording completed successfully
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Voice Recording Status */}
-          <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-green-100 rounded-xl">
-                  <Mic className="w-8 h-8 text-green-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    Voice Recording
-                  </h3>
-                  <p className="text-gray-600">Capture audio input</p>
-                </div>
-              </div>
-              <div
-                className={`flex items-center gap-2 ${getStatusColor(
-                  status.voice
-                )}`}
+                <Copy className="w-4 h-4" />
+                Copy Text
+              </button>
+              <button
+                onClick={downloadTranscript}
+                disabled={
+                  transcript ===
+                  'Click "Start Recording" to begin recording and see your speech transcribed here in real-time...'
+                }
+                className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-400 text-slate-700 rounded-lg font-medium transition-colors"
               >
-                {getStatusIcon(status.voice)}
-                <span className="font-medium capitalize">{status.voice}</span>
-              </div>
+                <FileText className="w-4 h-4" />
+                Download
+              </button>
+              <button
+                onClick={resetTranscript}
+                className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reset
+              </button>
             </div>
+          </div>
+        </section>
 
-            {errors.voice && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="text-red-700 text-sm">{errors.voice}</p>
-              </div>
-            )}
-
-            {recordings.voice && (
-              <div className="space-y-4">
-                <audio src={recordings.voice} controls className="w-full" />
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-green-700 text-sm font-medium">
-                    ✅ Voice recording completed successfully
-                  </p>
+        {/* Recording Cards Grid */}
+        <div className="grid lg:grid-cols-3 gap-6 mb-10">
+          {/* Screen Recording Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-purple-100 rounded-xl">
+                    <Monitor className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900">
+                      Screen Recording
+                    </h3>
+                    <p className="text-sm text-slate-600">Desktop capture</p>
+                  </div>
+                </div>
+                <div
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                    status.screen === "active"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : status.screen === "error"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {status.screen}
                 </div>
               </div>
-            )}
+            </div>
+
+            <div className="p-6">
+              {errors.screen && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                  <p className="text-red-700 text-xs">{errors.screen}</p>
+                </div>
+              )}
+
+              {recordings.screen && (
+                <div className="space-y-4">
+                  <div className="aspect-video bg-slate-900 rounded-lg overflow-hidden">
+                    <video
+                      src={recordings.screen}
+                      controls
+                      className="w-full h-full"
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleSingleUpload("screen")}
+                    disabled={isUploading.screen}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-purple-500 hover:bg-purple-600 disabled:bg-slate-300 text-white rounded-lg font-medium transition-colors text-sm"
+                  >
+                    {isUploading.screen ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : uploadUrls.screen ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Uploaded
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload Screen
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Tips Section */}
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
-          <h3 className="text-2xl font-bold text-gray-900 mb-8 text-center">
-            Tips for Best Results
-          </h3>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Mic className="w-8 h-8 text-blue-600" />
+          {/* Camera Recording Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-100 rounded-xl">
+                    <Video className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900">
+                      Camera Recording
+                    </h3>
+                    <p className="text-sm text-slate-600">Webcam capture</p>
+                  </div>
+                </div>
+                <div
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                    status.camera === "active"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : status.camera === "error"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {status.camera}
+                </div>
               </div>
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                Clear Speech
-              </h4>
-              <p className="text-gray-600 text-sm">
-                Speak clearly and at normal pace for better transcription
-                accuracy
-              </p>
             </div>
 
-            <div className="text-center">
-              <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Volume2 className="w-8 h-8 text-green-600" />
+            <div className="p-6">
+              {errors.camera && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                  <p className="text-red-700 text-xs">{errors.camera}</p>
+                </div>
+              )}
+
+              {recordings.camera && (
+                <div className="space-y-4">
+                  <div className="aspect-video bg-slate-900 rounded-lg overflow-hidden">
+                    <video
+                      src={recordings.camera}
+                      controls
+                      className="w-full h-full"
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleSingleUpload("camera")}
+                    disabled={isUploading.camera}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-slate-300 text-white rounded-lg font-medium transition-colors text-sm"
+                  >
+                    {isUploading.camera ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : uploadUrls.camera ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Uploaded
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload Camera
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Voice Recording Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-100 rounded-xl">
+                    <Mic className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900">
+                      Voice Recording
+                    </h3>
+                    <p className="text-sm text-slate-600">Audio capture</p>
+                  </div>
+                </div>
+                <div
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                    status.voice === "active"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : status.voice === "error"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {status.voice}
+                </div>
               </div>
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                Quiet Environment
-              </h4>
-              <p className="text-gray-600 text-sm">
-                Use in quiet spaces to minimize background noise interference
-              </p>
             </div>
 
-            <div className="text-center">
-              <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Monitor className="w-8 h-8 text-purple-600" />
-              </div>
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                Screen Sharing
-              </h4>
-              <p className="text-gray-600 text-sm">
-                Select the right screen or application to share for recording
-              </p>
-            </div>
+            <div className="p-6">
+              {errors.voice && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                  <p className="text-red-700 text-xs">{errors.voice}</p>
+                </div>
+              )}
 
-            <div className="text-center">
-              <div className="w-16 h-16 bg-yellow-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Brain className="w-8 h-8 text-yellow-600" />
-              </div>
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">
-                AI Analysis
-              </h4>
-              <p className="text-gray-600 text-sm">
-                Run AI analysis after recording to get truthfulness insights
-              </p>
+              {recordings.voice && (
+                <div className="space-y-4">
+                  <audio src={recordings.voice} controls className="w-full" />
+                  <button
+                    onClick={() => handleSingleUpload("voice")}
+                    disabled={isUploading.voice}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 text-white rounded-lg font-medium transition-colors text-sm"
+                  >
+                    {isUploading.voice ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : uploadUrls.voice ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Uploaded
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload Voice
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

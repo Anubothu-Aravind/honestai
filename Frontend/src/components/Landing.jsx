@@ -35,7 +35,9 @@ export function Landing() {
             }}
             onError={(error) => {
               console.error("Google Login Failed:", error);
-              alert("Google OAuth not configured correctly. Please check Authorized JavaScript origins and redirect URIs in Google Cloud Console.");
+              alert(
+                "Google OAuth not configured correctly. Please check Authorized JavaScript origins and redirect URIs in Google Cloud Console."
+              );
             }}
             theme="outline"
             size="large"
@@ -47,7 +49,7 @@ export function Landing() {
         </div>
 
         {/* OAuth Configuration Help */}
-        <div className="mt-6 p-4 bg-yellow-50 rounded-lg text-left">
+        {/* <div className="mt-6 p-4 bg-yellow-50 rounded-lg text-left">
           <h4 className="font-semibold text-yellow-800 mb-2">OAuth Setup Required:</h4>
           <ol className="text-xs text-yellow-700 space-y-1 list-decimal list-inside">
             <li>Go to Google Cloud Console</li>
@@ -56,7 +58,7 @@ export function Landing() {
             <li>Add Authorized origins: http://localhost:5173</li>
             <li>Add Redirect URIs: http://localhost:5173</li>
           </ol>
-        </div>
+        </div> */}
       </div>
     </div>
   );

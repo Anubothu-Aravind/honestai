@@ -8,12 +8,16 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "body-parser": "^2.2.0",
     "cloudinary": "^2.7.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "formidable": "^3.5.4",
     "ml-matrix": "^6.12.1",
     "mongoose": "^8.5.1",
+    "multer": "^2.0.2",
     "natural": "^8.1.0",
     "nodemon": "^3.1.10",
     "pdfkit": "^0.15.0",
