@@ -84,9 +84,7 @@ export const listSessions = async (req, res, next) => {
       adminKey === process.env.ADMIN_SECRET;
 
     if (isAdmin) {
-      const sessions = await Session.find({})
-        .sort({ createdAt: -1 })
-        .limit(100);
+      const sessions = await Session.find({}).sort({ createdAt: -1 }).limit(100);
       return res.status(200).json({ success: true, sessions });
     }
 
@@ -98,9 +96,7 @@ export const listSessions = async (req, res, next) => {
     }
 
     const filter = { userId };
-    const sessions = await Session.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const sessions = await Session.find(filter).sort({ createdAt: -1 }).limit(100);
     return res.status(200).json({ success: true, sessions });
   } catch (error) {
     console.error("listSessions error:", error);
