@@ -1,20 +1,14 @@
 /**
- * @fileoverview Session controller.
- *
- * Exposes handlers to create, list, fetch, and export session data.
- * - createSession: persist a session (ensures a shareId exists).
- * - listSessions: admin can list all; regular users must pass userId.
- * - getSession: fetch by _id or report.shareId.
- * - exportSessionPdf: render a session report to PDF, upload to Cloudinary,
- *   save the exported URL on the session, and return a download URL.
- *
- * Important environment variables:
- * - CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
- * - ADMIN_SECRET (for listing all sessions via x-admin-key header)
+ * @fileoverview Session controller for TrueScope.
+ * - createSession: create and persist a new session document (adds a shareId if missing).
+ * - listSessions: list sessions (admin can list all; regular users must pass userId).
+ * - getSession: fetch a session by _id or by report.shareId (shareable link).
+ * - exportSessionPdf: render a session report to PDF, upload to Cloudinary, and return download URL.
  *
  * Notes:
- * - PDF generation happens in memory (PDFKit). Large sessions may increase memory usage.
- * - Cloudinary upload uses upload_stream; ensure credentials and network access are correct.
+ * - Cloudinary must be configured via environment variables:
+ *   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET.
+ * - PDF generation is done in-memory using PDFKit; large sessions may increase memory usage.
  */
 
 import crypto from "crypto";
@@ -22,7 +16,7 @@ import Session from "../models/Session.js";
 import PDFDocument from "pdfkit";
 import { v2 as cloudinary } from "cloudinary";
 
-// Configure Cloudinary. Ensure environment variables are set in production.
+// Configure Cloudinary from environment variables (ensure these are set in production)
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -32,25 +26,25 @@ cloudinary.config({
 
 /**
  * Create a new session record.
+ * - Adds a report.shareId (UUID) if one is not provided in the payload.
  *
- * Adds a report.shareId (UUID) when missing and persists the session document.
- *
- * Request body: arbitrary session payload. Recommended shape:
+ * @example
+ * POST /api/sessions
  * {
- *   userId: string,
- *   type: string,
- *   startedAt: ISOString,
- *   endedAt: ISOString,
- *   report: { title?: string, shareId?: string, ... },
- *   voice: {...}, facial: {...}, text: {...}, truth: {...}
+ *   "userId": "user123",
+ *   "type": "interview",
+ *   "report": { "title": "Interview 1" }
  * }
  *
- * Success: 201 { success: true, session }
- * Errors: forwards to next middleware with status 500 on failure.
+ * @param {Object} req - Express request object (body contains session payload)
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next for error handling
+ * @returns {Promise<void>} 201 with created session or forwards error to next middleware
  */
 export const createSession = async (req, res, next) => {
   try {
     const payload = req.body || {};
+
     const session = await Session.create({
       ...payload,
       report: {
@@ -58,6 +52,7 @@ export const createSession = async (req, res, next) => {
         shareId: payload.report?.shareId || crypto.randomUUID(),
       },
     });
+
     return res.status(201).json({ success: true, session });
   } catch (error) {
     console.error("createSession error:", error);
@@ -68,17 +63,17 @@ export const createSession = async (req, res, next) => {
 
 /**
  * List sessions.
+ * - If X-Admin-Key header matches ADMIN_SECRET, returns the most recent 100 sessions.
+ * - Otherwise requires ?userId= to return that user's sessions (most recent 100).
  *
- * Behavior:
- * - If request header x-admin-key matches ADMIN_SECRET, returns the most recent 100 sessions.
- * - Otherwise requires query param userId and returns that user's most recent 100 sessions.
+ * @example
+ * GET /api/sessions?userId=user123
+ * Header: x-admin-key: <optional admin key>
  *
- * Query params:
- * - userId (string) — required for non-admin requests
- *
- * Success: 200 { success: true, sessions }
- * 403 if userId missing for non-admins
- * Errors: forwards to next middleware with status 500 on failure.
+ * @param {Object} req - Express request (query, headers)
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next for error handling
+ * @returns {Promise<void>} 200 with sessions array or 403 when userId missing for non-admins
  */
 export const listSessions = async (req, res, next) => {
   try {
@@ -111,14 +106,16 @@ export const listSessions = async (req, res, next) => {
 };
 
 /**
- * Get a single session by id or shareId.
+ * Retrieve a single session by document _id or by report.shareId (shareable link).
  *
- * Route params:
- * - idOrShare: document _id or session.report.shareId
+ * @example
+ * GET /api/sessions/:idOrShare
+ * GET /api/sessions/share_abc123
  *
- * Success: 200 { success: true, session }
- * 404 if not found
- * Errors: forwards to next middleware with status 500 on failure.
+ * @param {Object} req - Express request (params.idOrShare)
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next for error handling
+ * @returns {Promise<void>} 200 with session or 404 when not found
  */
 export const getSession = async (req, res, next) => {
   try {
@@ -126,6 +123,7 @@ export const getSession = async (req, res, next) => {
     const session = await Session.findOne({
       $or: [{ _id: idOrShare }, { "report.shareId": idOrShare }],
     });
+
     if (!session) return res.status(404).json({ message: "Session not found" });
     return res.status(200).json({ success: true, session });
   } catch (error) {
@@ -136,25 +134,21 @@ export const getSession = async (req, res, next) => {
 };
 
 /**
- * Export a session to PDF and upload to Cloudinary.
+ * Export a session to PDF, upload to Cloudinary, save the exported URL on the session,
+ * and return a direct download URL (with attachment disposition).
  *
- * Route params:
- * - id: session _id
+ * Implementation details:
+ * - Builds a readable PDF with session metadata and analysis sections.
+ * - Streams PDF bytes to memory, uploads the final buffer to Cloudinary using upload_stream.
+ * - Saves uploadResult.secure_url as session.report.exportedPdfUrl and returns a fl_attachment URL.
  *
- * Flow:
- * 1. Find session by id, 404 if missing.
- * 2. Build a readable PDF (session metadata, voice/facial/text/truth sections).
- * 3. Generate PDF in memory, upload buffer to Cloudinary via upload_stream.
- * 4. Store uploadResult.secure_url on session.report.exportedPdfUrl and save.
- * 5. Return a download-friendly URL (Cloudinary fl_attachment transform) and original URL.
+ * @example
+ * POST /api/sessions/:id/export
  *
- * Success: 200 { success: true, pdfUrl, originalUrl }
- * 404 if session missing
- * Errors: forwards to next middleware with status 500 on failure.
- *
- * Warning: This method buffers the entire PDF in memory before upload. For very large reports
- * or high concurrency, consider streaming to Cloudinary directly without buffering or using
- * a temporary file.
+ * @param {Object} req - Express request (params.id)
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next for error handling
+ * @returns {Promise<void>} 200 with { pdfUrl, originalUrl } or 404/500 on error
  */
 export const exportSessionPdf = async (req, res, next) => {
   try {
@@ -181,8 +175,7 @@ export const exportSessionPdf = async (req, res, next) => {
     doc.text(`Type: ${session.type || "-"}`);
 
     doc.moveDown();
-
-    // Voice analysis section
+    // Voice analysis
     doc.fontSize(16).text("Voice Analysis");
     doc.fontSize(12);
     const v = session.voice || {};
@@ -195,8 +188,7 @@ export const exportSessionPdf = async (req, res, next) => {
     doc.text(`Stress: ${v.stressScore ?? "-"}`);
 
     doc.moveDown();
-
-    // Facial analysis section
+    // Facial analysis
     doc.fontSize(16).text("Facial Analysis");
     doc.fontSize(12);
     const f = session.facial || {};
@@ -207,8 +199,7 @@ export const exportSessionPdf = async (req, res, next) => {
     doc.text(`Visual Emotion: ${f.visualEmotionScore ?? "-"}`);
 
     doc.moveDown();
-
-    // Text analysis section
+    // Text analysis
     doc.fontSize(16).text("Text Analysis");
     doc.fontSize(12);
     const t = session.text || {};
@@ -217,8 +208,7 @@ export const exportSessionPdf = async (req, res, next) => {
     doc.text(`Inconsistency: ${t.inconsistencyScore ?? "-"}`);
 
     doc.moveDown();
-
-    // Truth score section
+    // Truth score
     doc.fontSize(16).text("Truth Score");
     doc.fontSize(12);
     const tr = session.truth || {};
@@ -227,7 +217,6 @@ export const exportSessionPdf = async (req, res, next) => {
     doc.text(`Interpretation: ${tr.interpretation ?? "-"}`);
 
     doc.moveDown();
-
     // Notes / transcript excerpts
     doc.fontSize(16).text("Notes");
     doc.fontSize(12);
@@ -238,11 +227,11 @@ export const exportSessionPdf = async (req, res, next) => {
 
     doc.end();
 
-    // Wait for PDF generation to complete and collect buffer
+    // Wait for PDF generation to finish and collect buffer
     await new Promise((resolve) => doc.on("end", resolve));
     const buffer = Buffer.concat(chunks);
 
-    // Upload PDF buffer to Cloudinary using upload_stream
+    // Upload buffer to Cloudinary using an upload stream
     const uploadResult = await new Promise((resolve, reject) => {
       const uploadOptions = {
         resource_type: "auto",
@@ -260,13 +249,16 @@ export const exportSessionPdf = async (req, res, next) => {
       stream.end(buffer);
     });
 
-    // Persist exported PDF URL on session and save
+    // Persist PDF URL to the session document
     session.report = session.report || {};
     session.report.exportedPdfUrl = uploadResult.secure_url;
     await session.save();
 
-    // Provide an attachment-style URL for direct download (Cloudinary transform)
-    const pdfUrl = uploadResult.secure_url.replace("/upload/", "/upload/fl_attachment/");
+    // Construct an attachment-style URL (Cloudinary transformation)
+    const pdfUrl = uploadResult.secure_url.replace(
+      "/upload/",
+      "/upload/fl_attachment/"
+    );
 
     return res.status(200).json({
       success: true,
