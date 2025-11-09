@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Controller module for multimodal analysis in the TrueScope project.
+ * Handles voice, facial, text, and combined truth analysis using helper functions and
+ * the RealMLAnalyzer class. Each exported function serves as an Express route handler.
+ */
+
 import { RealMLAnalyzer } from "./real_ml.js";
 import natural from 'natural';
 import sentiment from 'sentiment';
@@ -6,10 +12,19 @@ import { Matrix } from 'ml-matrix';
 // Initialize sentiment analyzer
 const sentimentAnalyzer = new sentiment();
 
-// Helper function to clamp scores between 0 and 100
+/**
+ * Clamps a numeric score between 0 and 100.
+ * @param {number} score - The raw score to clamp.
+ * @returns {number} A rounded value between 0 and 100.
+ */
 const clampScore = (score) => Math.max(0, Math.min(100, Math.round(score)));
 
-// Helper function to generate deterministic values based on input
+/**
+ * Generates a deterministic pseudo-random numeric value based on input text.
+ * @param {string} input - Input string to hash.
+ * @param {number} [base=0.5] - Fallback base value if no input is provided.
+ * @returns {number} Normalized number between 0 and 1.
+ */
 const generateDeterministicValue = (input, base = 0.5) => {
   if (!input) return base;
   let hash = 0;
@@ -18,29 +33,31 @@ const generateDeterministicValue = (input, base = 0.5) => {
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // Convert to 32-bit integer
   }
-  return Math.abs(hash) / 2147483647; // Normalize to 0-1
+  return Math.abs(hash) / 2147483647;
 };
 
-// Voice analysis helper function (no Express res object)
 const mlAnalyzer = new RealMLAnalyzer();
 
+/**
+ * Analyzes voice input using deterministic scoring and RealMLAnalyzer.
+ * @async
+ * @param {string} [audioData] - Base64 or URL reference to the audio file.
+ * @param {string} [transcript] - Optional speech-to-text transcript.
+ * @returns {Promise<Object>} Voice analysis result.
+ * @throws {Error} If neither audioData nor transcript is provided.
+ */
 const analyzeVoiceHelper = async (audioData, transcript) => {
   try {
-    if (!audioData && !transcript) {
-      throw new Error('Audio data or transcript required');
-    }
-
-    // Generate deterministic values based on input
+    if (!audioData && !transcript) throw new Error('Audio data or transcript required');
     const inputHash = generateDeterministicValue(transcript || audioData);
-    
-    // Simulate voice analysis features (kept for determinism if needed)
+
+    // Deterministic feature generation (for fallback/testing)
     const pitchScore = clampScore(50 + (inputHash * 40 - 20));
     const toneScore = clampScore(60 + (inputHash * 30 - 15));
     const emotionalScore = clampScore(45 + (inputHash * 50 - 25));
     const stressScore = clampScore(30 + (inputHash * 40 - 20));
     const confidence = clampScore(70 + (inputHash * 20 - 10));
 
-    // Use real analyzer
     return await mlAnalyzer.analyzeAudio(audioData);
   } catch (error) {
     console.error('Voice analysis error:', error);
@@ -48,25 +65,25 @@ const analyzeVoiceHelper = async (audioData, transcript) => {
   }
 };
 
-// Facial analysis helper function (no Express res object)
+/**
+ * Analyzes facial data from video or image sources.
+ * @async
+ * @param {string} [videoData] - Video file or base64-encoded video input.
+ * @param {string} [imageData] - Image frame if video data is not available.
+ * @returns {Promise<Object>} Facial analysis results.
+ */
 const analyzeFacialHelper = async (videoData, imageData) => {
   try {
-    // If no inputs provided, return default facial analysis from real analyzer
-    if (!videoData && !imageData) {
-      return await mlAnalyzer.analyzeVideo(null);
-    }
+    if (!videoData && !imageData) return await mlAnalyzer.analyzeVideo(null);
 
-    // Generate deterministic values based on input
     const inputHash = generateDeterministicValue(videoData || imageData);
-    
-    // Simulate facial analysis features (kept for determinism if needed)
+
     const microExpressions = inputHash > 0.7 ? 'High' : inputHash > 0.4 ? 'Medium' : 'Low';
     const eyeMovement = inputHash > 0.6 ? 'Frequent' : inputHash > 0.3 ? 'Moderate' : 'Stable';
     const headPoseStability = clampScore(80 + (inputHash * 20 - 10));
     const gazeStability = clampScore(75 + (inputHash * 25 - 12));
     const confidence = clampScore(65 + (inputHash * 30 - 15));
 
-    // Use real analyzer (video preferred, fallback to image data)
     return await mlAnalyzer.analyzeVideo(videoData || imageData);
   } catch (error) {
     console.error('Facial analysis error:', error);
@@ -74,44 +91,41 @@ const analyzeFacialHelper = async (videoData, imageData) => {
   }
 };
 
-// Text analysis helper function (no Express res object)
+/**
+ * Performs linguistic and sentiment-based analysis of text input.
+ * @async
+ * @param {string} text - Input text to analyze.
+ * @returns {Promise<Object>} Text analysis results including sentiment, complexity, and deception scores.
+ * @throws {Error} If text input is missing or empty.
+ */
 const analyzeTextHelper = async (text) => {
   try {
-    if (!text || text.trim().length === 0) {
-      throw new Error('Text content required');
-    }
+    if (!text || text.trim().length === 0) throw new Error('Text content required');
 
-    // Sentiment analysis
     const sentimentResult = sentimentAnalyzer.analyze(text);
     const sentimentScore = clampScore(50 + (sentimentResult.score * 20));
-    
-    // Text complexity analysis
+
     const words = text.toLowerCase().split(/\s+/);
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
     const avgWordsPerSentence = words.length / sentences.length;
     const complexityScore = clampScore(Math.min(avgWordsPerSentence * 8, 100));
-    
-    // Consistency analysis
+
     const uniqueWords = new Set(words);
     const vocabularyDiversity = clampScore((uniqueWords.size / words.length) * 100);
     const consistencyScore = clampScore(100 - (vocabularyDiversity * 0.3));
-    
-    // Deception indicators
+
     const deceptionWords = ['actually', 'basically', 'honestly', 'literally', 'obviously'];
     const deceptionCount = words.filter(word => deceptionWords.includes(word)).length;
     const deceptionScore = clampScore(100 - (deceptionCount * 15));
-    
-    // Contradiction analysis
+
     const contradictionWords = ['but', 'however', 'although', 'despite', 'nevertheless'];
     const contradictionCount = words.filter(word => contradictionWords.includes(word)).length;
     const contradictionScore = clampScore(100 - (contradictionCount * 10));
-    
-    // Confidence indicators
+
     const confidenceWords = ['definitely', 'certainly', 'absolutely', 'surely'];
     const confidenceCount = words.filter(word => confidenceWords.includes(word)).length;
     const confidence = clampScore(60 + (confidenceCount * 8));
-    
-    // Use real analyzer
+
     return await mlAnalyzer.analyzeText(text);
   } catch (error) {
     console.error('Text analysis error:', error);
@@ -119,14 +133,19 @@ const analyzeTextHelper = async (text) => {
   }
 };
 
-// Truth score computation helper function (no Express res object)
+/**
+ * Computes an overall truth score by combining voice, facial, and text analysis results.
+ * @param {Object} [voiceResult] - Output of analyzeVoiceHelper.
+ * @param {Object} [facialResult] - Output of analyzeFacialHelper.
+ * @param {Object} [textResult] - Output of analyzeTextHelper.
+ * @param {string} [transcript] - Optional transcript used for context.
+ * @returns {Object} Truthfulness score, confidence level, and interpretation text.
+ */
 const computeTruthScoreHelper = (voiceResult, facialResult, textResult, transcript) => {
   try {
-    if (!voiceResult && !facialResult && !textResult) {
+    if (!voiceResult && !facialResult && !textResult)
       throw new Error('At least one analysis result required');
-    }
 
-    // Weighted combination of different analysis results
     let totalScore = 0;
     let totalWeight = 0;
     let confidenceSum = 0;
@@ -163,15 +182,14 @@ const computeTruthScoreHelper = (voiceResult, facialResult, textResult, transcri
     const confidence = clampScore(confidenceSum / confidenceCount);
 
     let interpretation;
-    if (truthfulness >= 80) {
+    if (truthfulness >= 80)
       interpretation = 'High truthfulness indicators detected. Strong consistency across multiple analysis modalities.';
-    } else if (truthfulness >= 60) {
+    else if (truthfulness >= 60)
       interpretation = 'Moderate truthfulness indicators. Some inconsistencies detected but overall credible.';
-    } else if (truthfulness >= 40) {
+    else if (truthfulness >= 40)
       interpretation = 'Mixed signals detected. Some deception indicators present.';
-    } else {
+    else
       interpretation = 'Low truthfulness indicators. Multiple deception signals detected.';
-    }
 
     return { truthfulness, confidence, interpretation };
   } catch (error) {
@@ -180,7 +198,10 @@ const computeTruthScoreHelper = (voiceResult, facialResult, textResult, transcri
   }
 };
 
-// Express route handlers
+/**
+ * @route POST /voice
+ * @description Express route handler for voice analysis.
+ */
 export const analyzeVoice = async (req, res) => {
   try {
     const { audioData, transcript } = req.body;
@@ -192,6 +213,10 @@ export const analyzeVoice = async (req, res) => {
   }
 };
 
+/**
+ * @route POST /facial
+ * @description Express route handler for facial expression analysis.
+ */
 export const analyzeFacial = async (req, res) => {
   try {
     const { videoData, imageData } = req.body;
@@ -203,6 +228,10 @@ export const analyzeFacial = async (req, res) => {
   }
 };
 
+/**
+ * @route POST /text
+ * @description Express route handler for text-based analysis.
+ */
 export const analyzeText = async (req, res) => {
   try {
     const { text } = req.body;
@@ -214,6 +243,10 @@ export const analyzeText = async (req, res) => {
   }
 };
 
+/**
+ * @route POST /truth
+ * @description Combines multiple analysis results into a truth score.
+ */
 export const computeTruthScore = async (req, res) => {
   try {
     const { voice, facial, text, transcript } = req.body;
@@ -225,27 +258,26 @@ export const computeTruthScore = async (req, res) => {
   }
 };
 
-// Combined analysis function
+/**
+ * @route POST /all
+ * @description Performs complete multimodal analysis (voice, facial, text) and computes truth score.
+ */
 export const analyzeAll = async (req, res) => {
   try {
     const { audioData, videoData, imageData, transcript } = req.body;
 
-    // Run all analyses using helper functions
     const voiceResult = await analyzeVoiceHelper(audioData, transcript);
     const facialResult = await analyzeFacialHelper(videoData, imageData);
     const textResult = await analyzeTextHelper(transcript || 'No transcript provided');
 
-    // Compute truth score
     const truthResult = computeTruthScoreHelper(voiceResult, facialResult, textResult, transcript);
 
-    const results = {
+    res.json({
       voice: voiceResult,
       facial: facialResult,
       text: textResult,
-      truth: truthResult
-    };
-
-    res.json(results);
+      truth: truthResult,
+    });
   } catch (error) {
     console.error('Combined analysis error:', error);
     res.status(500).json({ error: 'Combined analysis failed' });
