@@ -6,29 +6,54 @@ function Navbar({ user, onLogout }) {
   const location = useLocation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [storedUser, setStoredUser] = useState({});
 
   useEffect(() => {
-    const checkAuth = () => {
-      const userInfo = localStorage.getItem("userInfo");
-      setIsAuthenticated(!!userInfo || !!user);
+    const parseJson = (v) => {
+      try {
+        return JSON.parse(v);
+      } catch {
+        return {};
+      }
+    };
 
-      // Admin check
-      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-      const adminEmail = localStorage.getItem("adminEmail");
-      const isAdminFlag = localStorage.getItem("isAdmin") === "true";
-      setIsAdmin(isAdminFlag && storedUser.email === adminEmail);
+    const checkAuth = () => {
+      // prefer sessionStorage as the single source of truth for admin/session
+      const sessionUserInfo = sessionStorage.getItem("userInfo");
+      const localUserInfo = localStorage.getItem("userInfo");
+
+      // isAuthenticated true if a user prop exists or any userInfo exists (session first)
+      const auth =
+        !!user ||
+        !!sessionUserInfo ||
+        !!localUserInfo; // fallback to localStorage if app still uses it elsewhere
+      setIsAuthenticated(!!auth);
+
+      // storedUser may be held in sessionStorage or localStorage depending on your app.
+      // Prefer sessionStorage, fallback to localStorage.
+      const rawStoredUser =
+        sessionStorage.getItem("user") || localStorage.getItem("user") || "{}";
+      const parsedUser = parseJson(rawStoredUser);
+      setStoredUser(parsedUser);
+
+      // Admin flags (single source = sessionStorage)
+      const adminEmail = sessionStorage.getItem("adminEmail");
+      const isAdminFlag = sessionStorage.getItem("isAdmin") === "true";
+
+      // Only flag as admin if the stored user's email matches the adminEmail and flag is true
+      setIsAdmin(isAdminFlag && parsedUser.email === adminEmail);
     };
 
     checkAuth();
 
-    // Listen for auth changes
-    const handleStorageChange = () => checkAuth();
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("authStateChange", handleStorageChange);
+    // Re-check when other tabs change localStorage (storage event) OR when we dispatch authStateChange in same tab
+    const handleStorage = () => checkAuth();
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("authStateChange", handleStorage);
 
     return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("authStateChange", handleStorageChange);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("authStateChange", handleStorage);
     };
   }, [user]);
 
@@ -78,7 +103,7 @@ function Navbar({ user, onLogout }) {
               <span className="hidden sm:inline font-medium">Recorder</span>
             </Link>
 
-            {/* Dashboard link - greyed out if not admin */}
+            {/* Dashboard link - disabled if not admin */}
             <Link
               to={isAdmin ? "/dashboard" : "#"}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 ${
@@ -97,13 +122,13 @@ function Navbar({ user, onLogout }) {
             </Link>
 
             {/* User Profile and Logout */}
-            {user && (
+            {(user || storedUser.email) && (
               <div className="flex items-center ml-4">
                 <div className="flex items-center mr-3">
-                  {user.picture ? (
+                  {user?.picture || storedUser.picture ? (
                     <img
-                      src={user.picture}
-                      alt={user.name}
+                      src={user?.picture || storedUser.picture}
+                      alt={user?.name || storedUser.name || "User"}
                       className="w-8 h-8 rounded-full border-2 border-indigo-200"
                     />
                   ) : (
@@ -112,7 +137,7 @@ function Navbar({ user, onLogout }) {
                     </div>
                   )}
                   <span className="ml-2 text-sm font-medium text-gray-700 hidden md:block">
-                    {user.name || "User"}
+                    {user?.name || storedUser.name || "User"}
                   </span>
                 </div>
                 <button

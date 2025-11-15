@@ -54,10 +54,7 @@ export default function AdminLogin() {
       <div className="bg-white rounded-xl shadow p-6 w-full max-w-sm">
         <h1 className="text-xl font-semibold text-gray-900 mb-4">Admin Login</h1>
 
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-blue-700 text-sm">
-          <strong>Admin Email:</strong> aanubothu@gmail.com <br />
-          <strong>Admin Password:</strong> 567890
-        </div>
+        
 
         {error && (
           <div className="mb-3 p-2 text-sm rounded bg-rose-50 text-rose-700 border border-rose-200">
